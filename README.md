@@ -56,6 +56,8 @@ sudo systemctl restart ptzpad
 sudo journalctl -u ptzpad -f   # live logs
 ```
 
+The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl+C` to terminate it quickly.
+
 ## Troubleshooting
 
 | Symptom | Fix |
