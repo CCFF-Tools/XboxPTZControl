@@ -65,6 +65,25 @@ while True:
         time.sleep(0.25)          # debounce
         print(">> Control switched to CAM", cur+1, CAMS[cur])
 
+    # D-pad adjustments for speed and dead-zone
+    hx, hy = js.get_hat(0)
+    if hy == 1:
+        MAX_SPEED = min(MAX_SPEED + 1, 0x18)
+        print(f">> MAX_SPEED set to {MAX_SPEED}")
+        time.sleep(0.25)
+    elif hy == -1:
+        MAX_SPEED = max(MAX_SPEED - 1, 1)
+        print(f">> MAX_SPEED set to {MAX_SPEED}")
+        time.sleep(0.25)
+    if hx == 1:
+        DEADZONE = min(DEADZONE + 0.05, 0.9)
+        print(f">> DEADZONE set to {DEADZONE:.2f}")
+        time.sleep(0.25)
+    elif hx == -1:
+        DEADZONE = max(DEADZONE - 0.05, 0.0)
+        print(f">> DEADZONE set to {DEADZONE:.2f}")
+        time.sleep(0.25)
+
     ip = CAMS[cur]
     x, y = js.get_axis(0), -js.get_axis(1)   # left stick (invert Y)
     if abs(x) > DEADZONE or abs(y) > DEADZONE:
