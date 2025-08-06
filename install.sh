@@ -13,8 +13,7 @@ TARGET_HOME="$(eval echo ~"$TARGET_USER")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ==== USER-CONFIGURABLE SECTION ============================================
-CAMS=("192.168.1.150")        # Add more IPs in quotes as needed
-CAM_PORT=5678                 # PTZOptics TCP VISCA port (UDP == 1259)
+CAMS=("tcp:192.168.1.150")    # proto:ip[:port], e.g., udp:192.168.1.151:1259
 
 # ==== NO CHANGES NORMALLY NEEDED BELOW =====================================
 

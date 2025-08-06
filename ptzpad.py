@@ -3,8 +3,30 @@
 import pygame, socket, time, os, sys, signal
 
 # ---- CONFIG ---------------------------------------------------------------
-CAMS = os.environ.get("PTZ_CAMS", "192.168.1.150").split(",")  # env override
-CAM_PORT = int(os.environ.get("PTZ_PORT", "5678"))
+def parse_cams() -> list[tuple[str, str, int]]:
+    """Return list of (ip, proto, port) triples from PTZ_CAMS env."""
+    cams = []
+    raw = os.environ.get("PTZ_CAMS", "192.168.1.150").split(",")
+    for entry in raw:
+        entry = entry.strip()
+        if not entry:
+            continue
+        proto = "tcp"
+        port = None
+        parts = entry.split(":")
+        if parts[0].lower() in ("tcp", "udp"):
+            proto = parts[0].lower()
+            parts = parts[1:]
+        ip = parts[0]
+        if len(parts) > 1 and parts[1]:
+            port = int(parts[1])
+        if port is None:
+            port = 5678 if proto == "tcp" else 1259
+        cams.append((ip, proto, port))
+    return cams
+
+
+CAMS = parse_cams()  # env override with proto:ip[:port]
 MAX_SPEED = 0x18                 # 0x01 (slow) … 0x18 (fast)
 DEADZONE = 0.15                 # stick slack
 LOOP_MS = 50                    # command period (ms)
@@ -30,13 +52,18 @@ cur = 0                           # current CAM index
 max_speed = MAX_SPEED
 deadzone = DEADZONE
 
-def send(pkt, ip):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.3)
-        s.connect((ip, CAM_PORT))
-        s.sendall(pkt)
+def send(pkt, cam):
+    ip, proto, port = cam
+    if proto == "udp":
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.sendto(pkt, (ip, port))
+    else:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.3)
+            s.connect((ip, port))
+            s.sendall(pkt)
 
-def visca_move(x, y, ip):
+def visca_move(x, y, cam):
     """Drive pan/tilt according to joystick input."""
     def speed(v: float) -> int:
         # Scale speed with stick deflection for finer control
@@ -64,22 +91,22 @@ def visca_move(x, y, ip):
         tilt_speed = speed(y)
 
     pkt = bytes([0x81,0x01,0x06,0x01, pan_speed, tilt_speed, pan_dir, tilt_dir, 0xFF])
-    send(pkt, ip)
+    send(pkt, cam)
 
-def visca_stop(ip):
-    send(b"\x81\x01\x06\x01\x00\x00\x03\x03\xFF", ip)
+def visca_stop(cam):
+    send(b"\x81\x01\x06\x01\x00\x00\x03\x03\xFF", cam)
 
-def zoom(cmd, ip):                # cmd: b'\x2F' tele, b'\x3F' wide, b'\x00' stop
-    send(b"\x81\x01\x04\x07" + cmd + b"\xFF", ip)
+def zoom(cmd, cam):                # cmd: b'\x2F' tele, b'\x3F' wide, b'\x00' stop
+    send(b"\x81\x01\x04\x07" + cmd + b"\xFF", cam)
 
-print(">>> PTZ bridge running.  Cameras:", ", ".join(CAMS))
+print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
     pygame.event.pump()
     # camera cycling – LB button (#4)
     if js.get_button(4):
         cur = (cur + 1) % len(CAMS)
         time.sleep(0.25)          # debounce
-        print(">> Control switched to CAM", cur+1, CAMS[cur])
+        print(">> Control switched to CAM", cur + 1, CAMS[cur][0])
 
     # adjust max speed / deadzone with D-pad
     hat_x, hat_y = js.get_hat(0)
@@ -101,22 +128,22 @@ while running:
         time.sleep(0.25)
         print(f">> DEADZONE {deadzone:.2f}")
 
-    ip = CAMS[cur]
+    cam = CAMS[cur]
     x, y = js.get_axis(0), -js.get_axis(1)   # left stick (invert Y)
     if abs(x) > deadzone or abs(y) > deadzone:
-        visca_move(x, y, ip)
+        visca_move(x, y, cam)
     else:
-        visca_stop(ip)
+        visca_stop(cam)
 
     rt = (js.get_axis(4) + 1) / 2  # right trigger (0..1)
     lt = (js.get_axis(5) + 1) / 2  # left trigger (0..1)
 
     if rt > 0.3:
-        zoom(b"\x2F", ip)        # zoom tele
+        zoom(b"\x2F", cam)        # zoom tele
     elif lt > 0.3:
-        zoom(b"\x3F", ip)        # zoom wide
+        zoom(b"\x3F", cam)        # zoom wide
     else:
-        zoom(b"\x00", ip)        # stop zoom
+        zoom(b"\x00", cam)        # stop zoom
 
     time.sleep(LOOP_MS / 1000)
 
