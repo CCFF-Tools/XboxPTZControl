@@ -93,9 +93,12 @@ while True:
     else:
         visca_stop(ip)
 
-    rt, lt = js.get_axis(5), js.get_axis(2)  # triggers
-    if rt < -0.3:   zoom(b"\x2F", ip)        # zoom tele
-    elif lt < -0.3: zoom(b"\x3F", ip)        # zoom wide
-    else:           zoom(b"\x00", ip)        # stop zoom
+    rt, lt = js.get_axis(5), js.get_axis(2)  # triggers (0..1 when pressed)
+    if rt > 0.3:
+        zoom(b"\x2F", ip)        # zoom tele
+    elif lt > 0.3:
+        zoom(b"\x3F", ip)        # zoom wide
+    else:
+        zoom(b"\x00", ip)        # stop zoom
 
     time.sleep(LOOP_MS / 1000)
