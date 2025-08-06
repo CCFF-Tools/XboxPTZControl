@@ -40,6 +40,7 @@ User=${TARGET_USER}
 ExecStart=/usr/bin/python3 ${TARGET_HOME}/ptzpad.py
 Restart=on-failure
 Environment="PTZ_CAMS=%i"
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target

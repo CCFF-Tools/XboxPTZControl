@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
 # Xbox-One → PTZOptics VISCA-over-IP bridge
-import pygame, socket, time, os, sys
+import pygame, socket, time, os, sys, signal
 
 # ---- CONFIG ---------------------------------------------------------------
 CAMS = os.environ.get("PTZ_CAMS", "192.168.1.150").split(",")  # env override
 CAM_PORT = int(os.environ.get("PTZ_PORT", "5678"))
 MAX_SPEED = 0x18                 # 0x01 (slow) … 0x18 (fast)
-DEADZONE  = 0.15                 # stick slack
-LOOP_MS   = 50                   # command period (ms)
+DEADZONE = 0.15                 # stick slack
+LOOP_MS = 50                    # command period (ms)
 # ---------------------------------------------------------------------------
+
+running = True
+
+
+def handle_signal(signum, frame):
+    """Flip running flag to exit main loop."""
+    global running
+    running = False
+
+
+signal.signal(signal.SIGTERM, handle_signal)
+signal.signal(signal.SIGINT, handle_signal)
 
 pygame.init()
 if pygame.joystick.get_count() == 0:
@@ -61,7 +73,7 @@ def zoom(cmd, ip):                # cmd: b'\x2F' tele, b'\x3F' wide, b'\x00' sto
     send(b"\x81\x01\x04\x07" + cmd + b"\xFF", ip)
 
 print(">>> PTZ bridge running.  Cameras:", ", ".join(CAMS))
-while True:
+while running:
     pygame.event.pump()
     # camera cycling – LB button (#4)
     if js.get_button(4):
@@ -105,3 +117,5 @@ while True:
         zoom(b"\x00", ip)        # stop zoom
 
     time.sleep(LOOP_MS / 1000)
+
+pygame.quit()
