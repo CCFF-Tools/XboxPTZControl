@@ -15,6 +15,8 @@ if pygame.joystick.get_count() == 0:
     sys.exit(">>> No joystick detected – plug in the controller and retry.")
 js = pygame.joystick.Joystick(0); js.init()
 cur = 0                           # current CAM index
+max_speed = MAX_SPEED
+deadzone = DEADZONE
 
 def send(pkt, ip):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -25,24 +27,24 @@ def send(pkt, ip):
 def visca_move(x, y, ip):
     """Drive pan/tilt according to joystick input."""
     def speed(v: float) -> int:
-        return max(1, min(int(abs(v) * MAX_SPEED), MAX_SPEED))
+        return max(1, min(int(abs(v) * max_speed), max_speed))
 
     pan_dir = 0x03
     tilt_dir = 0x03
     pan_speed = 0x00
     tilt_speed = 0x00
 
-    if x < -DEADZONE:
+    if x < -deadzone:
         pan_dir = 0x01
         pan_speed = speed(x)
-    elif x > DEADZONE:
+    elif x > deadzone:
         pan_dir = 0x02
         pan_speed = speed(x)
 
-    if y > DEADZONE:  # y is inverted earlier
+    if y > deadzone:  # y is inverted earlier
         tilt_dir = 0x01
         tilt_speed = speed(y)
-    elif y < -DEADZONE:
+    elif y < -deadzone:
         tilt_dir = 0x02
         tilt_speed = speed(y)
 
@@ -64,9 +66,29 @@ while True:
         time.sleep(0.25)          # debounce
         print(">> Control switched to CAM", cur+1, CAMS[cur])
 
+    # adjust max speed / deadzone with D-pad
+    hat_x, hat_y = js.get_hat(0)
+    if hat_y == 1:
+        max_speed = min(max_speed + 1, MAX_SPEED)
+        time.sleep(0.25)
+        print(">> MAX_SPEED", max_speed)
+    elif hat_y == -1:
+        max_speed = max(max_speed - 1, 1)
+        time.sleep(0.25)
+        print(">> MAX_SPEED", max_speed)
+
+    if hat_x == 1:
+        deadzone = min(deadzone + 0.01, 0.5)
+        time.sleep(0.25)
+        print(f">> DEADZONE {deadzone:.2f}")
+    elif hat_x == -1:
+        deadzone = max(deadzone - 0.01, 0.0)
+        time.sleep(0.25)
+        print(f">> DEADZONE {deadzone:.2f}")
+
     ip = CAMS[cur]
     x, y = js.get_axis(0), -js.get_axis(1)   # left stick (invert Y)
-    if abs(x) > DEADZONE or abs(y) > DEADZONE:
+    if abs(x) > deadzone or abs(y) > deadzone:
         visca_move(x, y, ip)
     else:
         visca_stop(ip)
