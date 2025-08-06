@@ -29,6 +29,7 @@ def parse_cams() -> list[tuple[str, str, int]]:
 CAMS = parse_cams()  # env override with proto:ip[:port]
 MAX_SPEED = 0x18                 # 0x01 (slow) … 0x18 (fast)
 DEADZONE = 0.15                 # stick slack
+MAX_ZOOM_SPEED = 0x07           # 0x00 (slow) … 0x07 (fast)
 LOOP_MS = 50                    # command period (ms)
 # ---------------------------------------------------------------------------
 
@@ -51,6 +52,7 @@ js = pygame.joystick.Joystick(0); js.init()
 cur = 0                           # current CAM index
 max_speed = MAX_SPEED
 deadzone = DEADZONE
+zoom_speed = MAX_ZOOM_SPEED
 
 def send(pkt, cam):
     ip, proto, port = cam
@@ -96,7 +98,13 @@ def visca_move(x, y, cam):
 def visca_stop(cam):
     send(b"\x81\x01\x06\x01\x00\x00\x03\x03\xFF", cam)
 
-def zoom(cmd, cam):                # cmd: b'\x2F' tele, b'\x3F' wide, b'\x00' stop
+def zoom(direction, cam):          # direction: 1 tele, -1 wide, 0 stop
+    if direction > 0:
+        cmd = bytes([0x20 + zoom_speed])
+    elif direction < 0:
+        cmd = bytes([0x30 + zoom_speed])
+    else:
+        cmd = b"\x00"
     send(b"\x81\x01\x04\x07" + cmd + b"\xFF", cam)
 
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
@@ -128,6 +136,16 @@ while running:
         time.sleep(0.25)
         print(f">> DEADZONE {deadzone:.2f}")
 
+    # adjust zoom speed with Y (increase) / X (decrease) buttons
+    if js.get_button(3):
+        zoom_speed = min(zoom_speed + 1, MAX_ZOOM_SPEED)
+        time.sleep(0.25)
+        print(">> ZOOM_SPEED", zoom_speed)
+    elif js.get_button(2):
+        zoom_speed = max(zoom_speed - 1, 0x00)
+        time.sleep(0.25)
+        print(">> ZOOM_SPEED", zoom_speed)
+
     cam = CAMS[cur]
     x, y = js.get_axis(0), -js.get_axis(1)   # left stick (invert Y)
     if abs(x) > deadzone or abs(y) > deadzone:
@@ -139,11 +157,11 @@ while running:
     lt = (js.get_axis(5) + 1) / 2  # left trigger (0..1)
 
     if rt > 0.3:
-        zoom(b"\x2F", cam)        # zoom tele
+        zoom(1, cam)             # zoom tele
     elif lt > 0.3:
-        zoom(b"\x3F", cam)        # zoom wide
+        zoom(-1, cam)            # zoom wide
     else:
-        zoom(b"\x00", cam)        # stop zoom
+        zoom(0, cam)             # stop zoom
 
     time.sleep(LOOP_MS / 1000)
 

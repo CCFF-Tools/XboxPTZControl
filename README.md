@@ -36,6 +36,7 @@ Hardware you need:
 | LB | Cycle to next camera |
 | D-pad up/down | Increase / decrease max speed |
 | D-pad left/right | Increase / decrease deadzone |
+| Y / X | Increase / decrease zoom speed |
 
 ## Customising after install
 
@@ -46,7 +47,7 @@ export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
 # format: proto:ip[:port] (defaults 5678 TCP, 1259 UDP)
 ```
 
-- Adjust speed / dead-zone: use the D-pad or edit `MAX_SPEED` and `DEADZONE` in `~/ptzpad.py`.
+- Adjust speed / dead-zone / zoom speed: use the D-pad or Y/X buttons, or edit `MAX_SPEED`, `DEADZONE` and `MAX_ZOOM_SPEED` in `~/ptzpad.py`.
 
 ## Service management
 
