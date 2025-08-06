@@ -5,6 +5,10 @@
 # -----------------------------------------------------------
 set -euo pipefail
 
+# Determine the non-root user and home directory
+TARGET_USER="${SUDO_USER:-$(whoami)}"
+TARGET_HOME="$(eval echo ~"$TARGET_USER")"
+
 # ==== USER-CONFIGURABLE SECTION ============================================
 CAMS=("192.168.1.150")        # Add more IPs in quotes as needed
 CAM_PORT=5678                 # PTZOptics TCP VISCA port (UDP == 1259)
@@ -17,8 +21,8 @@ apt-get update -y
 DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-pygame
 
 # 2. Python joystick driver -------------------------------------------------
-echo "[2/4] Writing /home/pi/ptzpad.py …"
-cat > /home/pi/ptzpad.py <<'PY'
+echo "[2/4] Writing ${TARGET_HOME}/ptzpad.py …"
+cat > "${TARGET_HOME}/ptzpad.py" <<'PY'
 #!/usr/bin/env python3
 # Xbox-One → PTZOptics VISCA-over-IP bridge
 import pygame, socket, time, os, sys
@@ -79,19 +83,19 @@ while True:
 
     time.sleep(LOOP_MS / 1000)
 PY
-chmod +x /home/pi/ptzpad.py
-chown pi:pi /home/pi/ptzpad.py
+chmod +x "${TARGET_HOME}/ptzpad.py"
+chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/ptzpad.py"
 
 # 3. systemd unit -----------------------------------------------------------
 echo "[3/4] Creating systemd service…"
-cat > /etc/systemd/system/ptzpad.service <<'UNIT'
+cat > /etc/systemd/system/ptzpad.service <<UNIT
 [Unit]
 Description=Xbox-to-PTZOptics bridge
 After=network-online.target
 
 [Service]
-User=pi
-ExecStart=/usr/bin/python3 /home/pi/ptzpad.py
+User=${TARGET_USER}
+ExecStart=/usr/bin/python3 ${TARGET_HOME}/ptzpad.py
 Restart=on-failure
 Environment="PTZ_CAMS=%i"
 
@@ -107,5 +111,5 @@ systemctl enable --now ptzpad.service
 echo "--------------------------------------------------------------------"
 echo "Done!  The service is active.  Default camera(s): ${CAMS[*]}"
 echo "• To check logs:  journalctl -u ptzpad.service -f"
-echo "• To edit camera IPs later:  sudo nano /home/pi/ptzpad.py  (or set PTZ_CAMS env)"
+echo "• To edit camera IPs later:  sudo nano ${TARGET_HOME}/ptzpad.py  (or set PTZ_CAMS env)"
 echo "• Reboot test:    sudo reboot"
