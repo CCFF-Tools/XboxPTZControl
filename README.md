@@ -36,6 +36,8 @@ Hardware you need:
 | LB | Cycle to next camera |
 | D-pad up/down | Increase / decrease max speed |
 | D-pad left/right | Increase / decrease deadzone |
+| Y | Increase zoom speed |
+| X | Decrease zoom speed |
 
 ## Customising after install
 
@@ -46,7 +48,7 @@ export PTZ_CAMS=192.168.10.100,192.168.10.101
 export PTZ_PORT=5678
 ```
 
-- Adjust speed / dead-zone: use the D-pad or edit `MAX_SPEED` and `DEADZONE` in `~/ptzpad.py`.
+- Adjust speed / dead-zone / zoom: use the D-pad or X/Y buttons, or edit `MAX_SPEED`, `DEADZONE`, and `ZOOM_SPEED` in `~/ptzpad.py`.
 
 ## Service management
 
