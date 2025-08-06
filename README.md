@@ -4,7 +4,7 @@ Turn any Raspberry Pi 3 B (or newer) into a headless VISCA-over-IP joystick serv
 
 ## Repository structure
 
-This repo is intentionally tiny. The main deliverable is a single installation script (`install.sh`) that:
+The main deliverable is a single installation script (`install.sh`) that:
 
 - Installs Python 3, pip and `pygame`
 - Writes the `ptzpad.py` controller bridge to `/home/pi`
@@ -15,7 +15,7 @@ The Python driver is embedded within the script. It reads camera IP/port from en
 ## Quick start
 
 ```bash
-git clone https://github.com/<youruser>/XboxPTZControl.git
+git clone https://github.com/CCFF-Tools/XboxPTZControl.git
 cd XboxPTZControl
 sudo bash install.sh            # edit CAMS array at top if needed
 ```
