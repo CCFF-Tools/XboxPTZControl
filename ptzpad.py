@@ -27,7 +27,10 @@ def send(pkt, ip):
 def visca_move(x, y, ip):
     """Drive pan/tilt according to joystick input."""
     def speed(v: float) -> int:
-        return max(1, min(int(abs(v) * max_speed), max_speed))
+        # Scale speed with stick deflection for finer control
+        norm = (abs(v) - deadzone) / (1 - deadzone)
+        norm = max(0.0, min(norm, 1.0))
+        return max(1, int(norm * (max_speed - 1)) + 1)
 
     pan_dir = 0x03
     tilt_dir = 0x03

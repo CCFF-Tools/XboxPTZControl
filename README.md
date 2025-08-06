@@ -30,7 +30,7 @@ Hardware you need:
 
 | Input | Action |
 |-------|--------|
-| Left stick | Pan / tilt (variable speed) |
+| Left stick | Pan / tilt (speed scales with stick deflection) |
 | RT | Zoom in |
 | LT | Zoom out |
 | LB | Cycle to next camera |
