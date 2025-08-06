@@ -7,7 +7,7 @@ Turn any Raspberry Pi 3 B (or newer) into a headless VISCA-over-IP joystick serv
 The main deliverable is a single installation script (`install.sh`) that:
 
 - Installs Python 3, pip and `pygame`
-- Writes the `ptzpad.py` controller bridge to `/home/pi`
+- Writes the `ptzpad.py` controller bridge to the invoking user's home directory
 - Creates and enables a `ptzpad.service` so the bridge starts on boot
 
 The Python driver is embedded within the script. It reads camera IP/port from environment variables, polls the controller with `pygame`, and sends VISCA-over-IP commands over TCP.
@@ -44,7 +44,7 @@ export PTZ_CAMS=192.168.10.100,192.168.10.101
 export PTZ_PORT=5678
 ```
 
-- Adjust speed / dead-zone: edit `MAX_SPEED` and `DEADZONE` constants in `/home/pi/ptzpad.py`.
+- Adjust speed / dead-zone: edit `MAX_SPEED` and `DEADZONE` constants in `~/ptzpad.py`.
 
 ## Service management
 
