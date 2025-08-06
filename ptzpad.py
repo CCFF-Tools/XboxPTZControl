@@ -93,7 +93,7 @@ while True:
     else:
         visca_stop(ip)
 
-    rt = (js.get_axis(2) + 1) / 2  # right trigger (0..1)
+    rt = (js.get_axis(4) + 1) / 2  # right trigger (0..1)
     lt = (js.get_axis(5) + 1) / 2  # left trigger (0..1)
     if rt > 0.3:
         zoom(b"\x2F", ip)        # zoom tele
