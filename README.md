@@ -30,7 +30,7 @@ Hardware you need:
 
 | Input | Action |
 |-------|--------|
-| Left stick | Pan / tilt (variable speed) |
+| Left stick | Pan / tilt (speed scales with stick deflection) |
 | RT | Zoom in |
 | LT | Zoom out |
 | LB | Cycle to next camera |
@@ -55,6 +55,8 @@ sudo systemctl status ptzpad
 sudo systemctl restart ptzpad
 sudo journalctl -u ptzpad -f   # live logs
 ```
+
+The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl+C` to terminate it quickly.
 
 ## Troubleshooting
 
