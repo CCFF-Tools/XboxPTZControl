@@ -108,7 +108,9 @@ while running:
     else:
         visca_stop(ip)
 
-    rt, lt = js.get_axis(5), js.get_axis(2)  # triggers (0..1 when pressed)
+    rt = (js.get_axis(4) + 1) / 2  # right trigger (0..1)
+    lt = (js.get_axis(5) + 1) / 2  # left trigger (0..1)
+
     if rt > 0.3:
         zoom(b"\x2F", ip)        # zoom tele
     elif lt > 0.3:
