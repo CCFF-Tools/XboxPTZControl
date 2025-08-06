@@ -10,7 +10,7 @@ The main deliverable is a single installation script (`install.sh`) that:
 - Writes the `ptzpad.py` controller bridge to the invoking user's home directory
 - Creates and enables a `ptzpad.service` so the bridge starts on boot
 
-The Python driver is embedded within the script. It reads camera IP/port from environment variables, polls the controller with `pygame`, and sends VISCA-over-IP commands over TCP.
+The Python driver is embedded within the script. It reads camera IP/port from environment variables, polls the controller with `pygame`, and sends VISCA-over-IP commands over TCP or UDP.
 
 ## Quick start
 
@@ -42,8 +42,8 @@ Hardware you need:
 - Change camera IPs/ports:
 
 ```bash
-export PTZ_CAMS=192.168.10.100,192.168.10.101
-export PTZ_PORT=5678
+export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
+# format: proto:ip[:port] (defaults 5678 TCP, 1259 UDP)
 ```
 
 - Adjust speed / dead-zone: use the D-pad or edit `MAX_SPEED` and `DEADZONE` in `~/ptzpad.py`.
