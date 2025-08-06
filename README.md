@@ -1,4 +1,4 @@
-# Xbox → PTZOptics Bridge
+# XboxPTZControl
 
 Turn any Raspberry Pi 3 B (or newer) into a headless VISCA-over-IP joystick server that lets an Xbox One / Series X|S controller drive one or many PTZOptics cameras.
 
