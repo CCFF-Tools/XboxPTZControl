@@ -20,6 +20,12 @@ cd XboxPTZControl
 sudo bash install.sh            # edit CAMS array at top if needed
 ```
 
+Camera addresses can be changed by editing the `CAMS` array at the top of `install.sh` or by exporting the `PTZ_CAMS` environment variable before running the service, for example:
+
+```bash
+export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
+```
+
 Hardware you need:
 
 - Raspberry Pi 3 B or newer running Raspberry Pi OS (32-bit, bullseye or bookworm)
@@ -76,3 +82,11 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 - Expand controller mapping to handle additional buttons or advanced behaviors.
 - Learn more about `systemd` for tuning how the service runs and logs.
 
+## Uninstall
+
+```bash
+sudo systemctl disable --now ptzpad
+sudo rm /etc/systemd/system/ptzpad.service
+```
+
+Delete `~/ptzpad.py` if it's no longer needed.
