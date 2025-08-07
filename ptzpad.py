@@ -29,6 +29,7 @@ def parse_cams() -> list[tuple[str, str, int]]:
 CAMS = parse_cams()  # env override with proto:ip[:port]
 MAX_SPEED = 0x18                 # 0x01 (slow) … 0x18 (fast)
 DEADZONE = 0.15                 # stick slack
+FOCUS_DEADZONE = 0.20           # left stick focus deadzone
 MAX_ZOOM_SPEED = 0x07           # 0x00 (slow) … 0x07 (fast)
 LOOP_MS = 50                    # command period (ms)
 # ---------------------------------------------------------------------------
@@ -107,11 +108,23 @@ def zoom(direction, cam):          # direction: 1 tele, -1 wide, 0 stop
         cmd = b"\x00"
     send(b"\x81\x01\x04\x07" + cmd + b"\xFF", cam)
 
+def focus(direction, cam):         # direction: 1 far, -1 near, 0 stop
+    if direction > 0:
+        cmd = b"\x02"
+    elif direction < 0:
+        cmd = b"\x03"
+    else:
+        cmd = b"\x00"
+    send(b"\x81\x01\x04\x08" + cmd + b"\xFF", cam)
+
+def autofocus(cam):
+    send(b"\x81\x01\x04\x18\x01\xFF", cam)
+
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
     pygame.event.pump()
-    # camera cycling – LB button (#4)
-    if js.get_button(4):
+    # camera cycling – A button (#0)
+    if js.get_button(0):
         cur = (cur + 1) % len(CAMS)
         time.sleep(0.25)          # debounce
         print(">> Control switched to CAM", cur + 1, CAMS[cur][0])
@@ -136,22 +149,34 @@ while running:
         time.sleep(0.25)
         print(f">> DEADZONE {deadzone:.2f}")
 
-    # adjust zoom speed with Y (increase) / X (decrease) buttons
-    if js.get_button(3):
+    # adjust zoom speed with RB (increase) / LB (decrease) bumpers
+    if js.get_button(5):
         zoom_speed = min(zoom_speed + 1, MAX_ZOOM_SPEED)
         time.sleep(0.25)
         print(">> ZOOM_SPEED", zoom_speed)
-    elif js.get_button(2):
+    elif js.get_button(4):
         zoom_speed = max(zoom_speed - 1, 0x00)
         time.sleep(0.25)
         print(">> ZOOM_SPEED", zoom_speed)
 
     cam = CAMS[cur]
-    x, y = js.get_axis(0), -js.get_axis(1)   # left stick (invert Y)
+    x, y = js.get_axis(2), -js.get_axis(3)   # right stick (invert Y)
     if abs(x) > deadzone or abs(y) > deadzone:
         visca_move(x, y, cam)
     else:
         visca_stop(cam)
+
+    fy = -js.get_axis(1)                     # left stick Y for focus
+    if fy > FOCUS_DEADZONE:
+        focus(1, cam)
+    elif fy < -FOCUS_DEADZONE:
+        focus(-1, cam)
+    else:
+        focus(0, cam)
+
+    if js.get_button(9):                     # left stick click
+        autofocus(cam)
+        time.sleep(0.25)
 
     rt = (js.get_axis(4) + 1) / 2  # right trigger (0..1)
     lt = (js.get_axis(5) + 1) / 2  # left trigger (0..1)
