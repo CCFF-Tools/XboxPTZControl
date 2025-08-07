@@ -36,7 +36,7 @@ Hardware you need:
 
 | Input | Action |
 |-------|--------|
-| Right stick | Pan / tilt (speed scales logarithmically with stick deflection for a longer ramp) |
+| Right stick | Pan / tilt (speed scales with a cubic curve for a smoother ramp) |
 | Left stick up/down | Focus far/near (medium deadzone) |
 | Left stick click | One-time autofocus |
 | RT | Zoom in |
