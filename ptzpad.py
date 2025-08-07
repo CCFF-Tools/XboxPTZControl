@@ -69,10 +69,10 @@ def send(pkt, cam):
 def visca_move(x, y, cam):
     """Drive pan/tilt according to joystick input."""
     def speed(v: float) -> int:
-        # Scale speed with stick deflection using a logarithmic curve for finer control
+        # Scale speed with stick deflection using a gentler logarithmic curve for an extended ramp
         norm = (abs(v) - deadzone) / (1 - deadzone)
         norm = max(0.0, min(norm, 1.0))
-        curve = math.log10(norm * 9 + 1)
+        curve = math.log10(norm * 3 + 1) / math.log10(4)
         return max(1, int(curve * (max_speed - 1)) + 1)
 
     pan_dir = 0x03
