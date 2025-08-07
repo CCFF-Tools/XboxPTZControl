@@ -31,6 +31,7 @@ MAX_SPEED = 0x18                 # 0x01 (slow) … 0x18 (fast)
 DEADZONE = 0.15                 # stick slack
 FOCUS_DEADZONE = 0.20           # left stick focus deadzone
 MAX_ZOOM_SPEED = 0x07           # 0x00 (slow) … 0x07 (fast)
+ZOOM_DEADZONE = 0.10            # trigger slack for zoom
 LOOP_MS = 50                    # command period (ms)
 # ---------------------------------------------------------------------------
 
@@ -54,6 +55,7 @@ cur = 0                           # current CAM index
 max_speed = MAX_SPEED
 deadzone = DEADZONE
 zoom_speed = MAX_ZOOM_SPEED
+last_zoom_dir = 0              # last zoom command sent
 
 def send(pkt, cam):
     ip, proto, port = cam
@@ -181,13 +183,18 @@ while running:
 
     rt = (js.get_axis(4) + 1) / 2  # right trigger (0..1)
     lt = (js.get_axis(5) + 1) / 2  # left trigger (0..1)
+    zoom_val = rt - lt              # combine triggers
 
-    if rt > 0.3:
-        zoom(1, cam)             # zoom tele
-    elif lt > 0.3:
-        zoom(-1, cam)            # zoom wide
+    if zoom_val > ZOOM_DEADZONE:
+        zoom_dir = 1
+    elif zoom_val < -ZOOM_DEADZONE:
+        zoom_dir = -1
     else:
-        zoom(0, cam)             # stop zoom
+        zoom_dir = 0
+
+    if zoom_dir != last_zoom_dir:   # send only on change
+        zoom(zoom_dir, cam)
+        last_zoom_dir = zoom_dir
 
     time.sleep(LOOP_MS / 1000)
 
