@@ -30,7 +30,7 @@ Hardware you need:
 
 | Input | Action |
 |-------|--------|
-| Right stick | Pan / tilt (speed scales with stick deflection) |
+| Right stick | Pan / tilt (speed scales logarithmically with stick deflection) |
 | Left stick up/down | Focus far/near (medium deadzone) |
 | Left stick click | One-time autofocus |
 | RT | Zoom in |
