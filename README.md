@@ -76,3 +76,11 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 - Expand controller mapping to handle additional buttons or advanced behaviors.
 - Learn more about `systemd` for tuning how the service runs and logs.
 
+## Uninstall
+
+```bash
+sudo systemctl disable --now ptzpad
+sudo rm /etc/systemd/system/ptzpad.service
+```
+
+Delete `~/ptzpad.py` if it's no longer needed.
