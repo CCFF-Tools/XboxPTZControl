@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Xbox-One → PTZOptics VISCA-over-IP bridge
-import pygame, socket, time, os, sys, signal
+import pygame, socket, time, os, sys, signal, math
 
 # ---- CONFIG ---------------------------------------------------------------
 def parse_cams() -> list[tuple[str, str, int]]:
@@ -69,10 +69,11 @@ def send(pkt, cam):
 def visca_move(x, y, cam):
     """Drive pan/tilt according to joystick input."""
     def speed(v: float) -> int:
-        # Scale speed with stick deflection for finer control
+        # Scale speed with stick deflection using a gentler logarithmic curve for an extended ramp
         norm = (abs(v) - deadzone) / (1 - deadzone)
         norm = max(0.0, min(norm, 1.0))
-        return max(1, int(norm * (max_speed - 1)) + 1)
+        curve = math.log10(norm * 3 + 1) / math.log10(4)
+        return max(1, int(curve * (max_speed - 1)) + 1)
 
     pan_dir = 0x03
     tilt_dir = 0x03
