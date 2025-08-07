@@ -55,7 +55,7 @@ export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
 # format: proto:ip[:port] (defaults 5678 TCP, 1259 UDP)
 ```
 
-- Adjust speed / dead-zone / zoom speed: use the D-pad or RB/LB bumpers, or edit `MAX_SPEED`, `DEADZONE` and `MAX_ZOOM_SPEED` in `~/ptzpad.py`.
+- Adjust speed / dead-zone / zoom speed / zoom dead-zone: use the D-pad or RB/LB bumpers, or edit `MAX_SPEED`, `DEADZONE`, `MAX_ZOOM_SPEED` and `ZOOM_DEADZONE` in `~/ptzpad.py`.
 
 ## Service management
 
