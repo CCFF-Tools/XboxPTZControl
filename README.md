@@ -74,6 +74,7 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 | `pygame.error: No joystick` | Check USB cable/port; `lsusb` should list the Xbox controller. |
 | `Connection refused` | Wrong port or VISCA-TCP disabled in camera web UI. |
 | Jerky / slow moves | Keep ≥40 ms between VISCA packets (`LOOP_MS`), use wired LAN. |
+| Zoom jitter or stops while holding trigger | Increase `ZOOM_DEADZONE` to filter trigger noise. |
 | Lag after 30 s idle | Some cameras drop idle TCP; the script sends periodic keep-alives – ensure they aren’t blocked by a firewall. |
 
 ## Where to go next
