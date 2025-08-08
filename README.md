@@ -39,8 +39,8 @@ Hardware you need:
 | Right stick | Pan / tilt (speed scales with a cubic curve for a smoother ramp) |
 | Left stick up/down | Focus far/near (medium deadzone) |
 | Left stick click | One-time autofocus |
-| RT | Zoom in |
-| LT | Zoom out |
+| RT | Zoom in (repeats while held) |
+| LT | Zoom out (repeats while held) |
 | A | Cycle to next camera |
 | D-pad up/down | Increase / decrease max speed |
 | D-pad left/right | Increase / decrease deadzone |
@@ -74,7 +74,7 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 | Service prints `Waiting for joystick connection…` | Check USB cable/port; `lsusb` should list the Xbox controller. |
 | `Connection refused` | Wrong port or VISCA-TCP disabled in camera web UI. |
 | Jerky / slow moves | Keep ≥40 ms between VISCA packets (`LOOP_MS`), use wired LAN. |
-| Zoom jitter or stops while holding trigger | Increase `ZOOM_DEADZONE` to filter trigger noise. |
+| Zoom jitter or stops while holding trigger | Increase `ZOOM_DEADZONE` to filter trigger noise. Zoom commands repeat while the trigger is held. |
 | Lag after 30 s idle | Some cameras drop idle TCP; the script sends periodic keep-alives – ensure they aren’t blocked by a firewall. |
 
 ## Where to go next
