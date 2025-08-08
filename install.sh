@@ -33,11 +33,13 @@ cat > /etc/systemd/system/ptzpad.service <<UNIT
 [Unit]
 Description=Xbox-to-PTZOptics bridge
 After=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 User=${TARGET_USER}
 ExecStart=/usr/bin/python3 ${TARGET_HOME}/ptzpad.py
-Restart=on-failure
+Restart=always
+RestartSec=2
 Environment="PTZ_CAMS=%i"
 TimeoutStopSec=5
 

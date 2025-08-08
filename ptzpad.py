@@ -48,9 +48,24 @@ signal.signal(signal.SIGTERM, handle_signal)
 signal.signal(signal.SIGINT, handle_signal)
 
 pygame.init()
-if pygame.joystick.get_count() == 0:
-    sys.exit(">>> No joystick detected – plug in the controller and retry.")
-js = pygame.joystick.Joystick(0); js.init()
+
+
+def wait_for_joystick() -> pygame.joystick.Joystick:
+    """Block until a joystick is available, returning it."""
+    while pygame.joystick.get_count() == 0 and running:
+        print(">>> Waiting for joystick connection…")
+        time.sleep(1)
+        pygame.joystick.quit()
+        pygame.joystick.init()
+    if not running:
+        sys.exit(0)
+    js = pygame.joystick.Joystick(0)
+    js.init()
+    print(">>> Joystick connected")
+    return js
+
+
+js = wait_for_joystick()
 cur = 0                           # current CAM index
 max_speed = MAX_SPEED
 deadzone = DEADZONE
@@ -126,6 +141,11 @@ def autofocus(cam):
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
     pygame.event.pump()
+    if pygame.joystick.get_count() == 0:
+        print(">>> Joystick disconnected")
+        visca_stop(CAMS[cur])
+        js = wait_for_joystick()
+        continue
     # camera cycling – A button (#0)
     if js.get_button(0):
         cur = (cur + 1) % len(CAMS)

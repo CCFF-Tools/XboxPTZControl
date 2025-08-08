@@ -65,13 +65,13 @@ sudo systemctl restart ptzpad
 sudo journalctl -u ptzpad -f   # live logs
 ```
 
-The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl+C` to terminate it quickly.
+The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl+C` to terminate it quickly. The service is configured to restart automatically if the bridge crashes.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
-| `pygame.error: No joystick` | Check USB cable/port; `lsusb` should list the Xbox controller. |
+| Service prints `Waiting for joystick connection…` | Check USB cable/port; `lsusb` should list the Xbox controller. |
 | `Connection refused` | Wrong port or VISCA-TCP disabled in camera web UI. |
 | Jerky / slow moves | Keep ≥40 ms between VISCA packets (`LOOP_MS`), use wired LAN. |
 | Zoom jitter or stops while holding trigger | Increase `ZOOM_DEADZONE` to filter trigger noise. |
