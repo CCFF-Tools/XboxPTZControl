@@ -212,10 +212,10 @@ while running:
     else:
         zoom_dir = 0
 
-    # resend zoom command while trigger held so camera keeps moving
-    if zoom_dir != last_zoom_dir or zoom_dir != 0:
+    # send zoom command only when trigger direction changes
+    if zoom_dir != last_zoom_dir:
         zoom(zoom_dir, cam)
-    last_zoom_dir = zoom_dir
+        last_zoom_dir = zoom_dir
 
     time.sleep(LOOP_MS / 1000)
 
