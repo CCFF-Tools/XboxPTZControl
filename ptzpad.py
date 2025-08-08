@@ -32,6 +32,7 @@ DEADZONE = 0.15                 # stick slack
 FOCUS_DEADZONE = 0.20           # left stick focus deadzone
 MAX_ZOOM_SPEED = 0x07           # 0x00 (slow) … 0x07 (fast)
 ZOOM_DEADZONE = 0.10            # trigger slack for zoom
+ZOOM_STOP_DELAY = 3             # loops to confirm trigger release
 LOOP_MS = 50                    # command period (ms)
 # ---------------------------------------------------------------------------
 
@@ -71,6 +72,7 @@ max_speed = MAX_SPEED
 deadzone = DEADZONE
 zoom_speed = MAX_ZOOM_SPEED
 last_zoom_dir = 0              # last zoom command sent
+zero_zoom_count = 0            # consecutive loops with no zoom input
 
 def send(pkt, cam):
     ip, proto, port = cam
@@ -212,12 +214,16 @@ while running:
     else:
         zoom_dir = 0
 
-    # continuously send zoom commands while trigger held; send stop once on release
+    # continuously send zoom commands while trigger held; delay stop to filter noise
     if zoom_dir != 0:
         zoom(zoom_dir, cam)
-    elif last_zoom_dir != 0:
-        zoom(0, cam)
-    last_zoom_dir = zoom_dir
+        zero_zoom_count = 0
+        last_zoom_dir = zoom_dir
+    else:
+        zero_zoom_count += 1
+        if last_zoom_dir != 0 and zero_zoom_count >= ZOOM_STOP_DELAY:
+            zoom(0, cam)
+            last_zoom_dir = 0
 
     time.sleep(LOOP_MS / 1000)
 
