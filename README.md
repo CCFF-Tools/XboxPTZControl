@@ -74,7 +74,7 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 | Service prints `Waiting for joystick connection…` | Check USB cable/port; `lsusb` should list the Xbox controller. |
 | `Connection refused` | Wrong port or VISCA-TCP disabled in camera web UI. |
 | Jerky / slow moves | Keep ≥40 ms between VISCA packets (`LOOP_MS`), use wired LAN. |
-| Zoom jitter or stops while holding trigger | Increase `ZOOM_DEADZONE` to filter trigger noise. Zoom commands repeat while the trigger is held. |
+| Zoom jitter or stops while holding trigger | Tweak `ZOOM_START_DEADZONE`/`ZOOM_STOP_DEADZONE` to filter trigger noise and adjust `ZOOM_REPEAT_MS` for repeat rate. Zoom continues until the trigger rests inside the stop deadzone for a few loops. |
 | Lag after 30 s idle | Some cameras drop idle TCP; the script sends periodic keep-alives – ensure they aren’t blocked by a firewall. |
 
 ## Where to go next

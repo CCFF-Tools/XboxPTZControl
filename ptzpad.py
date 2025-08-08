@@ -31,7 +31,10 @@ MAX_SPEED = 0x18                 # 0x01 (slow) … 0x18 (fast)
 DEADZONE = 0.15                 # stick slack
 FOCUS_DEADZONE = 0.20           # left stick focus deadzone
 MAX_ZOOM_SPEED = 0x07           # 0x00 (slow) … 0x07 (fast)
-ZOOM_DEADZONE = 0.10            # trigger slack for zoom
+ZOOM_START_DEADZONE = 0.10      # trigger slack for zoom start
+ZOOM_STOP_DEADZONE = 0.05       # smaller slack to stop zoom
+ZOOM_REPEAT_MS = 200            # repeat zoom command every N ms
+ZOOM_STOP_LOOPS = 3             # require this many loops below stop threshold
 LOOP_MS = 50                    # command period (ms)
 # ---------------------------------------------------------------------------
 
@@ -71,6 +74,8 @@ max_speed = MAX_SPEED
 deadzone = DEADZONE
 zoom_speed = MAX_ZOOM_SPEED
 last_zoom_dir = 0              # last zoom command sent
+zoom_stop_count = 0            # loops below stop threshold
+last_zoom_sent = 0.0           # ms timestamp of last zoom command
 
 def send(pkt, cam):
     ip, proto, port = cam
@@ -205,18 +210,28 @@ while running:
     lt = (js.get_axis(5) + 1) / 2  # left trigger (0..1)
     zoom_val = rt - lt              # combine triggers
 
-    if zoom_val > ZOOM_DEADZONE:
-        zoom_dir = 1
-    elif zoom_val < -ZOOM_DEADZONE:
-        zoom_dir = -1
+    if abs(zoom_val) > ZOOM_START_DEADZONE:
+        zoom_dir = 1 if zoom_val > 0 else -1
+        zoom_stop_count = 0
+    elif abs(zoom_val) < ZOOM_STOP_DEADZONE:
+        zoom_stop_count += 1
+        if zoom_stop_count >= ZOOM_STOP_LOOPS:
+            zoom_dir = 0
+        else:
+            zoom_dir = last_zoom_dir
     else:
-        zoom_dir = 0
+        zoom_dir = last_zoom_dir
+        zoom_stop_count = 0
 
-    # continuously send zoom commands while trigger held; send stop once on release
-    if zoom_dir != 0:
+    now_ms = time.time() * 1000
+    send_cmd = False
+    if zoom_dir != last_zoom_dir:
+        send_cmd = True
+    elif zoom_dir != 0 and now_ms - last_zoom_sent >= ZOOM_REPEAT_MS:
+        send_cmd = True
+    if send_cmd:
         zoom(zoom_dir, cam)
-    elif last_zoom_dir != 0:
-        zoom(0, cam)
+        last_zoom_sent = now_ms
     last_zoom_dir = zoom_dir
 
     time.sleep(LOOP_MS / 1000)
