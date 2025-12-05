@@ -86,16 +86,16 @@ class OledStatus:
         self._render(["PTZ Bridge", message])
 
     def _paint_boot_screen(self) -> None:
-        self._render(["PTZ Bridge", "Starting up…"], force=True)
+        self._render(["PTZ Bridge", "Starting up..."], force=True)
 
     def joystick_wait(self) -> None:
-        self._render(["Waiting for joystick", "Connect controller…"])
+        self._render(["Waiting for joystick", "Connect controller..."])
 
     def joystick_connected(self, name: str) -> None:
         self._render(["Joystick connected", name])
 
     def joystick_disconnected(self) -> None:
-        self._render(["Joystick disconnected", "Waiting to reconnect…"])
+        self._render(["Joystick disconnected", "Waiting to reconnect"])
 
     def camera_active(self, idx: int, ip: str) -> None:
         self._render([f"Camera {idx + 1}", ip])
@@ -104,7 +104,7 @@ class OledStatus:
         self._render(["Bluetooth linked", name])
 
     def bluetooth_disconnected(self) -> None:
-        self._render(["Bluetooth disconnected", "Reconnect controller"])
+        self._render(["Bluetooth link lost", "Reconnect controller"])
 
     def error(self, message: str) -> None:
         self._render(["Error", message], force=True)

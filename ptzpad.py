@@ -46,19 +46,19 @@ def parse_cams(status: OledStatus | None = None) -> list[tuple[str, str, int]]:
         cams.append(fallback)
         print(">>> PTZ_CAMS invalid; using default", fallback[0])
         if status:
-            status.error("PTZ_CAMS invalid; using default")
+            status.error("PTZ_CAMS invalid")
     return cams
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 status_display = OledStatus()
-status_display.boot("Parsing cameras…")
+status_display.boot("Parsing cameras...")
 
 CAMS = parse_cams(status_display)  # env override with proto:ip[:port]
-MAX_SPEED = 0x18                 # 0x01 (slow) … 0x18 (fast)
+MAX_SPEED = 0x18                 # 0x01 (slow) ... 0x18 (fast)
 DEADZONE = 0.15                 # stick slack
 FOCUS_DEADZONE = 0.20           # left stick focus deadzone
-MAX_ZOOM_SPEED = 0x07           # 0x00 (slow) … 0x07 (fast)
+MAX_ZOOM_SPEED = 0x07           # 0x00 (slow) ... 0x07 (fast)
 ZOOM_START_DEADZONE = 0.10      # trigger slack for zoom start
 ZOOM_STOP_DEADZONE = 0.05       # smaller slack to stop zoom
 ZOOM_REPEAT_MS = 200            # repeat zoom command every N ms
@@ -79,9 +79,9 @@ def handle_signal(signum, frame):
 signal.signal(signal.SIGTERM, handle_signal)
 signal.signal(signal.SIGINT, handle_signal)
 
-status_display.boot("Starting pygame…")
+status_display.boot("Starting pygame...")
 pygame.init()
-status_display.boot("Waiting for joystick…")
+status_display.boot("Waiting for joystick")
 
 
 def wait_for_joystick() -> pygame.joystick.Joystick:
@@ -89,7 +89,7 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     global bluetooth_linked
     status_display.joystick_wait()
     while pygame.joystick.get_count() == 0 and running:
-        print(">>> Waiting for joystick connection…")
+        print(">>> Waiting for joystick connection...")
         status_display.joystick_wait()
         time.sleep(1)
         pygame.joystick.quit()
