@@ -110,6 +110,7 @@ Restart=always
 RestartSec=2
 EnvironmentFile=-/etc/default/ptzpad
 RuntimeDirectory=ptzpad
+RuntimeDirectoryMode=0700
 TimeoutStopSec=5
 
 [Install]
