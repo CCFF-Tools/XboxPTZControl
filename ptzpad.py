@@ -1,7 +1,28 @@
 #!/usr/bin/env python3
 # Xbox-One → PTZOptics VISCA-over-IP bridge
-import logging
 import os
+import sys
+
+
+def ensure_runtime_dir() -> str:
+    """Guarantee SDL has a writable runtime directory before importing pygame."""
+
+    xdg_dir = os.environ.get("XDG_RUNTIME_DIR") or "/run/ptzpad"
+    os.environ["XDG_RUNTIME_DIR"] = xdg_dir
+    try:
+        os.makedirs(xdg_dir, mode=0o700, exist_ok=True)
+        os.chmod(xdg_dir, 0o700)
+    except OSError as exc:
+        print(
+            f"error: could not prepare XDG_RUNTIME_DIR {xdg_dir}: {exc}",
+            file=sys.stderr,
+        )
+    return xdg_dir
+
+
+ensure_runtime_dir()
+
+import logging
 import pygame
 import signal
 import socket
@@ -48,8 +69,6 @@ def parse_cams(status: OledStatus | None = None) -> list[tuple[str, str, int]]:
         if status:
             status.error("PTZ_CAMS invalid")
     return cams
-
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 status_display = OledStatus()
 status_display.boot("Parsing cameras...")
