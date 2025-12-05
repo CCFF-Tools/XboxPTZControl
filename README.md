@@ -37,6 +37,15 @@ If the OLED is connected to I2C address `0x3C`, the service will render boot pro
 camera index/IP, and any socket or configuration errors. When the display is missing or fails to initialize, the service logs a
 single warning and continues to run normally without screen output.
 
+OLED settings can be overridden with environment variables if you use a different I2C bus or address:
+
+```bash
+export OLED_I2C_BUS=3          # defaults to bus 3
+export OLED_I2C_ADDRESS=0x3C   # accepts hex (0x3C) or decimal (60)
+```
+
+For example, when using a software I2C overlay on GPIO 23/24 configured as bus 3, set `OLED_I2C_BUS=3` before launching the service so the display driver opens the correct bus.
+
 ## Default controls
 
 | Input | Action |
