@@ -31,6 +31,11 @@ Hardware you need:
 - Raspberry Pi 3 B or newer running Raspberry Pi OS (32-bit, bullseye or bookworm)
 - Xbox One / Series X|S controller (wired USB recommended)
 - PTZOptics camera(s) with VISCA-over-IP enabled (default TCP 5678)
+- Optional: 128×64 SSD1306 I2C OLED (for live status: boot, joystick/Bluetooth link, active camera, errors)
+
+If the OLED is connected to I2C address `0x3C`, the service will render boot progress, joystick/Bluetooth link state, the active
+camera index/IP, and any socket or configuration errors. When the display is missing or fails to initialize, the service logs a
+single warning and continues to run normally without screen output.
 
 ## Default controls
 
