@@ -75,6 +75,10 @@ chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}
 
 # 4. systemd unit -----------------------------------------------------------
 echo "[4/5] Creating systemd service…"
+CAM_LIST=$(IFS=,; echo "${CAMS[*]}")
+if [[ ! -f /etc/default/ptzpad ]]; then
+    printf "PTZ_CAMS=%s\n" "${CAM_LIST}" > /etc/default/ptzpad
+fi
 cat > /etc/systemd/system/ptzpad.service <<UNIT
 [Unit]
 Description=Xbox-to-PTZOptics bridge
@@ -87,7 +91,7 @@ ExecStart=/usr/bin/python3 ${TARGET_HOME}/ptzpad.py
 WorkingDirectory=${TARGET_HOME}
 Restart=always
 RestartSec=2
-Environment="PTZ_CAMS=%i"
+EnvironmentFile=-/etc/default/ptzpad
 TimeoutStopSec=5
 
 [Install]
@@ -102,7 +106,7 @@ systemctl enable --now ptzpad.service
 echo "--------------------------------------------------------------------"
 echo "Done!  The service is active.  Default camera(s): ${CAMS[*]}"
 echo "• To check logs:  journalctl -u ptzpad.service -f"
-echo "• To edit camera IPs later:  sudo nano ${TARGET_HOME}/ptzpad.py  (or set PTZ_CAMS env)"
+echo "• To edit camera IPs later:  update /etc/default/ptzpad and restart the service (or edit ${TARGET_HOME}/ptzpad.py)"
 echo "• Reboot test:    sudo reboot"
 if [[ "${OLED_STATUS}" == "success" ]]; then
     echo "OLED setup: success (luma.oled + I2C ready)"
