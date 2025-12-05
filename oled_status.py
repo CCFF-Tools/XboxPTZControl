@@ -28,7 +28,7 @@ class _NullDisplay:
     def __init__(self) -> None:
         self.available = False
 
-    def show(self, _lines: Iterable[str], _force: bool = False) -> None:
+    def show(self, _lines: Iterable[str], force: bool = False) -> None:
         return
 
 
@@ -141,7 +141,7 @@ class OledStatus:
             self._display = _NullDisplay()
             self._available = False
 
-    def show(self, lines: Iterable[str], _force: bool = False) -> None:
+    def show(self, lines: Iterable[str], force: bool = False) -> None:
         if not self.available:
             return
 
