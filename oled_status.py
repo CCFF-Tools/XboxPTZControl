@@ -38,6 +38,7 @@ class OledStatus:
     def __init__(self, min_interval: float = 0.2) -> None:
         self._log = logging.getLogger(__name__)
         self._min_interval = min_interval
+        self._keepalive_interval = 30.0
         self._last_lines: List[str] = []
         self._last_update = 0.0
         self._failed_once = False
@@ -55,7 +56,10 @@ class OledStatus:
             address_raw = os.environ.get("OLED_I2C_ADDRESS", "0x3C")
             i2c_addr = int(address_raw, 0)
 
+            self._log.info("Initializing SSD1306 on I2C bus %s addr 0x%X", i2c_bus, i2c_addr)
+
             serial = i2c(port=i2c_bus, address=i2c_addr)
+            self._serial = serial
             self._device = ssd1306(serial, width=128, height=64)  # type: ignore[arg-type]
             self._width = self._device.width
             self._height = self._device.height
@@ -72,6 +76,7 @@ class OledStatus:
 
         self._available = True
         self._display = self._device
+        self._paint_boot_screen()
 
     @property
     def available(self) -> bool:
@@ -79,6 +84,9 @@ class OledStatus:
 
     def boot(self, message: str) -> None:
         self._render(["PTZ Bridge", message])
+
+    def _paint_boot_screen(self) -> None:
+        self._render(["PTZ Bridge", "Starting up…"], force=True)
 
     def joystick_wait(self) -> None:
         self._render(["Waiting for joystick", "Connect controller…"])
@@ -101,14 +109,26 @@ class OledStatus:
     def error(self, message: str) -> None:
         self._render(["Error", message], force=True)
 
+    def refresh(self) -> None:
+        """Force a keepalive render when the screen already has content."""
+
+        if not self.available or not self._last_lines:
+            return
+
+        self._render(self._last_lines)
+
     def _render(self, lines: Iterable[str], force: bool = False) -> None:
         if not self.available:
             return
 
         normalized = [line[:21] for line in lines]  # 21 chars fits default font
         now = time.time()
-        if not force and normalized == self._last_lines and now - self._last_update < self._min_interval:
-            return
+        if not force:
+            if normalized == self._last_lines:
+                if now - self._last_update < self._keepalive_interval:
+                    return
+            elif now - self._last_update < self._min_interval:
+                return
 
         try:
             self.show(normalized, force=force)
@@ -133,3 +153,7 @@ class OledStatus:
             for line in lines:
                 draw.text((0, y), line, font=self._font, fill=255)
                 y += self._font.getsize(line)[1] + 2
+
+        # Explicitly flush the buffer to the panel to mirror the working
+        # standalone test sequence and avoid stale images on some adapters.
+        self._device.show()

@@ -192,6 +192,7 @@ def autofocus(cam):
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
     pygame.event.pump()
+    status_display.refresh()
     if pygame.joystick.get_count() == 0:
         print(">>> Joystick disconnected")
         status_display.joystick_disconnected()
