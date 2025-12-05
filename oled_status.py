@@ -12,13 +12,13 @@ from typing import Iterable, List
 
 try:
     from luma.core.interface.serial import i2c
+    from luma.core.render import canvas
     from luma.oled.device import ssd1306
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import ImageFont
 except (ImportError, FileNotFoundError, OSError):  # hardware not present or drivers missing
+    canvas = None
     i2c = None
     ssd1306 = None
-    Image = None
-    ImageDraw = None
     ImageFont = None
 
 
@@ -43,7 +43,7 @@ class OledStatus:
         self._failed_once = False
         self._available = False
 
-        if not all([i2c, ssd1306, Image, ImageDraw, ImageFont]):
+        if not all([canvas, i2c, ssd1306, ImageFont]):
             self._display = _NullDisplay()
             if not self._failed_once:
                 self._log.info("OLED display unavailable; running without screen")
@@ -56,10 +56,14 @@ class OledStatus:
             i2c_addr = int(address_raw, 0)
 
             serial = i2c(port=i2c_bus, address=i2c_addr)
-            self._device = ssd1306(serial)  # type: ignore[arg-type]
+            self._device = ssd1306(serial, width=128, height=64)  # type: ignore[arg-type]
             self._width = self._device.width
             self._height = self._device.height
             self._font = ImageFont.load_default()
+
+            self._device.contrast(255)
+            self._device.clear()
+            self._device.show()
         except Exception as exc:  # pylint: disable=broad-except
             self._log.warning("Failed to initialize OLED display: %s", exc)
             self._display = _NullDisplay()
@@ -121,13 +125,11 @@ class OledStatus:
         if not self.available:
             return
 
-        image = Image.new("1", (self._width, self._height))
-        draw = ImageDraw.Draw(image)
-
         padding = 2
-        y = padding
-        for line in lines:
-            draw.text((0, y), line, font=self._font, fill=255)
-            y += self._font.getsize(line)[1] + 2
+        with canvas(self._device) as draw:  # type: ignore[arg-type]
+            draw.rectangle(self._device.bounding_box, outline=0, fill=0)
 
-        self._device.display(image)
+            y = padding
+            for line in lines:
+                draw.text((0, y), line, font=self._font, fill=255)
+                y += self._font.getsize(line)[1] + 2
