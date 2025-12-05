@@ -6,6 +6,7 @@ implementation when the hardware or driver cannot be initialized.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Iterable, List
 
@@ -49,7 +50,11 @@ class OledStatus:
             return
 
         try:
-            serial = i2c(port=1, address=0x3C)
+            i2c_bus = int(os.environ.get("OLED_I2C_BUS", "3"))
+            address_raw = os.environ.get("OLED_I2C_ADDRESS", "0x3C")
+            i2c_addr = int(address_raw, 0)
+
+            serial = i2c(port=i2c_bus, address=i2c_addr)
             self._device = ssd1306(serial)  # type: ignore[arg-type]
             self._width = self._device.width
             self._height = self._device.height
