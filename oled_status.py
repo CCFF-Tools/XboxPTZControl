@@ -41,6 +41,7 @@ class OledStatus:
         self._last_lines: List[str] = []
         self._last_update = 0.0
         self._failed_once = False
+        self._available = False
 
         if not all([i2c, ssd1306, Image, ImageDraw, ImageFont]):
             self._display = _NullDisplay()
@@ -65,11 +66,12 @@ class OledStatus:
             self._failed_once = True
             return
 
-        self._display = self
+        self._available = True
+        self._display = self._device
 
     @property
     def available(self) -> bool:
-        return getattr(self._display, "available", True)
+        return self._available
 
     def boot(self, message: str) -> None:
         self._render(["PTZ Bridge", message])
@@ -113,6 +115,7 @@ class OledStatus:
                 self._log.warning("OLED write failed: %s", exc)
                 self._failed_once = True
             self._display = _NullDisplay()
+            self._available = False
 
     def show(self, lines: Iterable[str], _force: bool = False) -> None:
         if not self.available:
