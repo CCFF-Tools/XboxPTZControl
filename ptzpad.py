@@ -50,6 +50,19 @@ def parse_cams(status: OledStatus | None = None) -> list[tuple[str, str, int]]:
     return cams
 
 
+def ensure_runtime_dir() -> str:
+    """Guarantee SDL has a writable runtime directory."""
+
+    xdg_dir = os.environ.get("XDG_RUNTIME_DIR") or "/run/ptzpad"
+    os.environ["XDG_RUNTIME_DIR"] = xdg_dir
+    try:
+        os.makedirs(xdg_dir, exist_ok=True)
+    except OSError as exc:
+        print(f"error: could not create XDG_RUNTIME_DIR {xdg_dir}: {exc}", file=sys.stderr)
+    return xdg_dir
+
+
+ensure_runtime_dir()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 status_display = OledStatus()
 status_display.boot("Parsing cameras...")
