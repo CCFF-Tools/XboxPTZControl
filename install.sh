@@ -67,6 +67,21 @@ else
     OLED_NOTES+=("i2c group missing; cannot set device permissions")
 fi
 
+# Joystick permissions (needed for Bluetooth/USB gamepads)
+if getent group input >/dev/null 2>&1; then
+    if id -nG "${TARGET_USER}" | tr ' ' '\n' | grep -q '^input$'; then
+        echo " • ${TARGET_USER} already in input group for joystick access"
+    else
+        if usermod -aG input "${TARGET_USER}"; then
+            echo " • Added ${TARGET_USER} to input group for joystick access"
+        else
+            echo " • WARNING: failed to add ${TARGET_USER} to input group; joystick access may be blocked"
+        fi
+    fi
+else
+    echo " • WARNING: input group missing; joystick permissions may be blocked"
+fi
+
 # 3. Python joystick driver -------------------------------------------------
 echo "[3/5] Installing ${TARGET_HOME}/ptzpad.py and oled_status.py …"
 install -m 755 "${SCRIPT_DIR}/ptzpad.py" "${TARGET_HOME}/ptzpad.py"
@@ -87,11 +102,14 @@ StartLimitIntervalSec=0
 
 [Service]
 User=${TARGET_USER}
+Environment=SDL_JOYSTICK_HIDAPI=0
+Environment=XDG_RUNTIME_DIR=/run/ptzpad
 ExecStart=/usr/bin/python3 ${TARGET_HOME}/ptzpad.py
 WorkingDirectory=${TARGET_HOME}
 Restart=always
 RestartSec=2
 EnvironmentFile=-/etc/default/ptzpad
+RuntimeDirectory=ptzpad
 TimeoutStopSec=5
 
 [Install]
