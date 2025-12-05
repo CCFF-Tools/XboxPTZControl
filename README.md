@@ -26,6 +26,8 @@ Camera addresses can be changed by editing the `CAMS` array at the top of `insta
 export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
 ```
 
+The installer seeds `/etc/default/ptzpad` with the current `CAMS` values, and the service reads `PTZ_CAMS` from that file on startup. Update that file any time you want to persist new camera addresses.
+
 Hardware you need:
 
 - Raspberry Pi 3 B or newer running Raspberry Pi OS (32-bit, bullseye or bookworm)
@@ -75,7 +77,15 @@ For example, when using a software I2C overlay on GPIO 23/24 configured as bus 3
 
 ## Customising after install
 
-- Change camera IPs/ports:
+- Change camera IPs/ports (persistent):
+
+```bash
+echo "PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54" | sudo tee /etc/default/ptzpad
+sudo systemctl daemon-reload
+sudo systemctl restart ptzpad
+```
+
+- Change camera IPs/ports (one-off):
 
 ```bash
 export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
@@ -90,6 +100,7 @@ export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
 sudo systemctl status ptzpad
 sudo systemctl restart ptzpad
 sudo journalctl -u ptzpad -f   # live logs
+systemctl show -p Environment ptzpad.service
 ```
 
 The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl+C` to terminate it quickly. The service is configured to restart automatically if the bridge crashes.
