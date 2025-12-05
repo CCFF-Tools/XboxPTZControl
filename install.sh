@@ -68,9 +68,10 @@ else
 fi
 
 # 3. Python joystick driver -------------------------------------------------
-echo "[3/5] Installing ${TARGET_HOME}/ptzpad.py …"
+echo "[3/5] Installing ${TARGET_HOME}/ptzpad.py and oled_status.py …"
 install -m 755 "${SCRIPT_DIR}/ptzpad.py" "${TARGET_HOME}/ptzpad.py"
-chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/ptzpad.py"
+install -m 644 "${SCRIPT_DIR}/oled_status.py" "${TARGET_HOME}/oled_status.py"
+chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/oled_status.py"
 
 # 4. systemd unit -----------------------------------------------------------
 echo "[4/5] Creating systemd service…"
@@ -83,6 +84,7 @@ StartLimitIntervalSec=0
 [Service]
 User=${TARGET_USER}
 ExecStart=/usr/bin/python3 ${TARGET_HOME}/ptzpad.py
+WorkingDirectory=${TARGET_HOME}
 Restart=always
 RestartSec=2
 Environment="PTZ_CAMS=%i"
