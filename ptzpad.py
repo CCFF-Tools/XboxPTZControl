@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 # Xbox-One → PTZOptics VISCA-over-IP bridge
-import pygame, socket, time, os, sys, signal, math
+import logging
+import os
+import pygame
+import signal
+import socket
+import sys
+import time
+
+from oled_status import OledStatus
 
 # ---- CONFIG ---------------------------------------------------------------
-def parse_cams() -> list[tuple[str, str, int]]:
-    """Return list of (ip, proto, port) triples from PTZ_CAMS env."""
+def parse_cams(status: OledStatus | None = None) -> list[tuple[str, str, int]]:
+    """Return list of (ip, proto, port) triples from PTZ_CAMS env.
+
+    Invalid entries are skipped and reported via the OLED when available.
+    """
     cams = []
     raw = os.environ.get("PTZ_CAMS", "192.168.1.150").split(",")
     for entry in raw:
@@ -19,14 +30,31 @@ def parse_cams() -> list[tuple[str, str, int]]:
             parts = parts[1:]
         ip = parts[0]
         if len(parts) > 1 and parts[1]:
-            port = int(parts[1])
+            try:
+                port = int(parts[1])
+            except ValueError:
+                msg = f"Invalid port in PTZ_CAMS entry: {entry}"
+                print(msg)
+                if status:
+                    status.error("Bad PTZ_CAMS port")
+                continue
         if port is None:
             port = 5678 if proto == "tcp" else 1259
         cams.append((ip, proto, port))
+    if not cams:
+        fallback = ("192.168.1.150", "tcp", 5678)
+        cams.append(fallback)
+        print(">>> PTZ_CAMS invalid; using default", fallback[0])
+        if status:
+            status.error("PTZ_CAMS invalid; using default")
     return cams
 
 
-CAMS = parse_cams()  # env override with proto:ip[:port]
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+status_display = OledStatus()
+status_display.boot("Parsing cameras…")
+
+CAMS = parse_cams(status_display)  # env override with proto:ip[:port]
 MAX_SPEED = 0x18                 # 0x01 (slow) … 0x18 (fast)
 DEADZONE = 0.15                 # stick slack
 FOCUS_DEADZONE = 0.20           # left stick focus deadzone
@@ -39,6 +67,7 @@ LOOP_MS = 50                    # command period (ms)
 # ---------------------------------------------------------------------------
 
 running = True
+bluetooth_linked = False
 
 
 def handle_signal(signum, frame):
@@ -50,13 +79,18 @@ def handle_signal(signum, frame):
 signal.signal(signal.SIGTERM, handle_signal)
 signal.signal(signal.SIGINT, handle_signal)
 
+status_display.boot("Starting pygame…")
 pygame.init()
+status_display.boot("Waiting for joystick…")
 
 
 def wait_for_joystick() -> pygame.joystick.Joystick:
     """Block until a joystick is available, returning it."""
+    global bluetooth_linked
+    status_display.joystick_wait()
     while pygame.joystick.get_count() == 0 and running:
         print(">>> Waiting for joystick connection…")
+        status_display.joystick_wait()
         time.sleep(1)
         pygame.joystick.quit()
         pygame.joystick.init()
@@ -64,7 +98,13 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
         sys.exit(0)
     js = pygame.joystick.Joystick(0)
     js.init()
-    print(">>> Joystick connected")
+    name = js.get_name()
+    print(">>> Joystick connected", name)
+    status_display.joystick_connected(name)
+    bt_name = name.lower()
+    bluetooth_linked = "bluetooth" in bt_name or "wireless" in bt_name
+    if bluetooth_linked:
+        status_display.bluetooth_connected(name)
     return js
 
 
@@ -76,17 +116,23 @@ zoom_speed = MAX_ZOOM_SPEED
 last_zoom_dir = 0              # last zoom command sent
 zoom_stop_count = 0            # loops below stop threshold
 last_zoom_sent = 0.0           # ms timestamp of last zoom command
+status_display.camera_active(cur, CAMS[cur][0])
+status_display.boot("PTZ bridge ready")
 
 def send(pkt, cam):
     ip, proto, port = cam
-    if proto == "udp":
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.sendto(pkt, (ip, port))
-    else:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.3)
-            s.connect((ip, port))
-            s.sendall(pkt)
+    try:
+        if proto == "udp":
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.sendto(pkt, (ip, port))
+        else:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.3)
+                s.connect((ip, port))
+                s.sendall(pkt)
+    except OSError as exc:
+        print(f">> Socket error to {ip}:{port}: {exc}")
+        status_display.error("Socket send failed")
 
 def visca_move(x, y, cam):
     """Drive pan/tilt according to joystick input."""
@@ -148,14 +194,20 @@ while running:
     pygame.event.pump()
     if pygame.joystick.get_count() == 0:
         print(">>> Joystick disconnected")
+        status_display.joystick_disconnected()
+        if bluetooth_linked:
+            status_display.bluetooth_disconnected()
+            bluetooth_linked = False
         visca_stop(CAMS[cur])
         js = wait_for_joystick()
+        status_display.camera_active(cur, CAMS[cur][0])
         continue
     # camera cycling – A button (#0)
     if js.get_button(0):
         cur = (cur + 1) % len(CAMS)
         time.sleep(0.25)          # debounce
         print(">> Control switched to CAM", cur + 1, CAMS[cur][0])
+        status_display.camera_active(cur, CAMS[cur][0])
 
     # adjust max speed / deadzone with D-pad
     hat_x, hat_y = js.get_hat(0)
