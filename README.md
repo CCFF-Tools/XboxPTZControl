@@ -33,9 +33,22 @@ Hardware you need:
 - PTZOptics camera(s) with VISCA-over-IP enabled (default TCP 5678)
 - Optional: 128×64 SSD1306 I2C OLED (for live status: boot, joystick/Bluetooth link, active camera, errors)
 
-If the OLED is connected to I2C address `0x3C`, the service will render boot progress, joystick/Bluetooth link state, the active
-camera index/IP, and any socket or configuration errors. When the display is missing or fails to initialize, the service logs a
-single warning and continues to run normally without screen output.
+## OLED status display
+
+The OLED is optional. When present and reachable at I2C address `0x3C`, it shows boot progress, joystick/Bluetooth link state, the active camera index/IP, and socket or configuration errors. Missing hardware or driver issues are handled gracefully: the service logs one message and continues without screen output.
+
+- **Hardware wiring (SSD1306 128×64 over I2C):**
+  - VCC → 3.3 V (e.g., pin 1 or 17 on the 40-pin header)
+  - GND → any ground (e.g., pin 6)
+  - SDA → GPIO 2 (pin 3)
+  - SCL → GPIO 3 (pin 5)
+  - Keep the display on the 3.3 V rail; most SSD1306 breakout boards default to I2C address `0x3C`.
+- **Packages and configuration:** `install.sh` installs `python3-pil`, `i2c-tools`, and `luma.oled` (via pip) and enables I2C via `raspi-config`. If you are setting up manually, install those packages and ensure your user is in the `i2c` group.
+- **What you should see:**
+  - Boot: “Parsing cameras…”, “Starting pygame…”, and “Waiting for joystick…” as setup progresses.
+  - Runtime: “Joystick connected” with the controller name, “Bluetooth linked” (for wireless controllers), the active camera number/IP, and “PTZ bridge ready”.
+  - Errors: configuration or socket issues render an “Error” banner with a brief code or message.
+- **Disable the OLED:** Leave the display disconnected or uninstall `luma.oled`; the bridge will log “OLED display unavailable; running without screen” and operate normally with no OLED output.
 
 ## Default controls
 
@@ -77,6 +90,7 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 | Symptom | Fix |
 |---------|-----|
 | Service prints `Waiting for joystick connection…` | Check USB cable/port; `lsusb` should list the Xbox controller. |
+| OLED stays blank or shows garbled text | Confirm the display answers at `0x3C` with `i2cdetect -y 1`, and recheck SDA (GPIO 2) / SCL (GPIO 3) wiring, 3.3 V power, and ground. |
 | `Connection refused` | Wrong port or VISCA-TCP disabled in camera web UI. |
 | Jerky / slow moves | Keep ≥40 ms between VISCA packets (`LOOP_MS`), use wired LAN. |
 | Zoom jitter or stops while holding trigger | Tweak `ZOOM_START_DEADZONE`/`ZOOM_STOP_DEADZONE` to filter trigger noise and adjust `ZOOM_REPEAT_MS` for repeat rate. Zoom continues until the trigger rests inside the stop deadzone for a few loops. |
