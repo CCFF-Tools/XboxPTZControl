@@ -120,15 +120,66 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     hidapi_enabled = hidapi_env not in ("0", "false", "no")
     hidapi_toggled = False
     attempts = 0
+    last_error = ""
+
+    def log_backend_error(message: str, oled_message: str) -> None:
+        nonlocal last_error
+        if message != last_error:
+            print(message)
+            status_display.error(oled_message)
+            last_error = message
+
+    def diagnose_evdev(devices: list[str], backend: str) -> None:
+        """Probe /dev/input devices for clearer failure reasons."""
+
+        opened = False
+        for dev in devices:
+            path = f"/dev/input/{dev}"
+            try:
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                os.close(fd)
+                opened = True
+            except PermissionError as exc:
+                log_backend_error(
+                    f">>> Permission denied opening {path} via {backend}: {exc}",
+                    "evdev permission",
+                )
+                return
+            except OSError as exc:
+                log_backend_error(
+                    f">>> Failed to open {path} via {backend}: {exc}",
+                    "evdev IO error",
+                )
+                return
+
+        if opened:
+            log_backend_error(
+                ">>> evdev devices open but pygame still reports 0 joysticks",
+                "evdev OK, pygame 0",
+            )
+
+    def diagnose_hidapi() -> None:
+        try:
+            probe = pygame.joystick.Joystick(0)
+            probe.init()
+        except Exception as exc:  # pylint: disable=broad-except
+            log_backend_error(
+                f">>> HIDAPI joystick init failed: {exc}",
+                "hidapi blocked",
+            )
 
     while pygame.joystick.get_count() == 0 and running:
         attempts += 1
         print(">>> Waiting for joystick connection...")
         status_display.joystick_wait()
 
+        backend = "hidapi" if (hidapi_enabled or hidapi_toggled) else "evdev"
         devs = sorted(p for p in os.listdir("/dev/input") if p.startswith("js")) if os.path.isdir("/dev/input") else []
         if devs:
             print(f">>> /dev/input devices present: {', '.join(devs)}")
+            diagnose_evdev(devs, backend)
+        else:
+            diagnose_hidapi()
 
         time.sleep(1)
         reinit_joystick()
