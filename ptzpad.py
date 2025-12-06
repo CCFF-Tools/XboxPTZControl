@@ -1,12 +1,42 @@
 #!/usr/bin/env python3
 # Xbox-One → PTZOptics VISCA-over-IP bridge
-import logging
 import os
+import sys
+
+# Force SDL to use the headless video driver to avoid XDG runtime complaints on
+# systems without a graphical session (e.g., the service unit).
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+
+
+def ensure_runtime_dir() -> str:
+    """Guarantee SDL has a writable runtime directory before importing pygame."""
+
+    xdg_dir = os.environ.get("XDG_RUNTIME_DIR") or "/run/ptzpad"
+    os.environ["XDG_RUNTIME_DIR"] = xdg_dir
+    try:
+        os.makedirs(xdg_dir, mode=0o700, exist_ok=True)
+        os.chmod(xdg_dir, 0o700)
+    except OSError as exc:
+        print(
+            f"error: could not prepare XDG_RUNTIME_DIR {xdg_dir}: {exc}",
+            file=sys.stderr,
+        )
+    return xdg_dir
+
+
+ensure_runtime_dir()
+
+import logging
 import pygame
 import signal
 import socket
 import sys
 import time
+
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 from oled_status import OledStatus
 
@@ -48,8 +78,6 @@ def parse_cams(status: OledStatus | None = None) -> list[tuple[str, str, int]]:
         if status:
             status.error("PTZ_CAMS invalid")
     return cams
-
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 status_display = OledStatus()
 status_display.boot("Parsing cameras...")
@@ -64,6 +92,9 @@ ZOOM_STOP_DEADZONE = 0.05       # smaller slack to stop zoom
 ZOOM_REPEAT_MS = 200            # repeat zoom command every N ms
 ZOOM_STOP_LOOPS = 3             # require this many loops below stop threshold
 LOOP_MS = 50                    # command period (ms)
+DEBUG_INPUT_RAW = os.environ.get("PTZPAD_DEBUG_INPUT", "")
+DEBUG_INPUT = DEBUG_INPUT_RAW.lower() in ("1", "true", "yes")
+DEBUG_INPUT_INTERVAL = 0.25     # seconds between debug samples
 # ---------------------------------------------------------------------------
 
 running = True
@@ -82,18 +113,63 @@ signal.signal(signal.SIGINT, handle_signal)
 status_display.boot("Starting pygame...")
 pygame.init()
 status_display.boot("Waiting for joystick")
+print(
+    f">>> INPUT debug {'enabled' if DEBUG_INPUT else 'disabled'} "
+    f"(PTZPAD_DEBUG_INPUT={'<unset>' if not DEBUG_INPUT_RAW else DEBUG_INPUT_RAW})"
+)
 
 
 def wait_for_joystick() -> pygame.joystick.Joystick:
     """Block until a joystick is available, returning it."""
     global bluetooth_linked
     status_display.joystick_wait()
-    while pygame.joystick.get_count() == 0 and running:
-        print(">>> Waiting for joystick connection...")
-        status_display.joystick_wait()
-        time.sleep(1)
+
+    def reinit_joystick() -> None:
         pygame.joystick.quit()
         pygame.joystick.init()
+
+    hidapi_env = os.environ.get("SDL_JOYSTICK_HIDAPI", "0")
+    hidapi_enabled = hidapi_env not in ("0", "false", "no")
+    hidapi_toggled = False
+    attempts = 0
+
+    while pygame.joystick.get_count() == 0 and running:
+        attempts += 1
+        print(">>> Waiting for joystick connection...")
+        status_display.joystick_wait()
+
+        devs = sorted(p for p in os.listdir("/dev/input") if p.startswith("js")) if os.path.isdir("/dev/input") else []
+        if devs:
+            print(f">>> /dev/input devices present: {', '.join(devs)}")
+
+            for dev in devs:
+                path = os.path.join("/dev/input", dev)
+                try:
+                    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                except OSError as exc:
+                    print(f">>> Unable to open {path}: {exc}")
+                    status_display.error("Joystick open failed")
+                    continue
+                else:
+                    os.close(fd)
+                    print(f">>> {path} is readable (perm ok)")
+        else:
+            print(">>> No /dev/input/js* devices found")
+
+        time.sleep(1)
+        reinit_joystick()
+
+        if (
+            not hidapi_enabled
+            and not hidapi_toggled
+            and attempts >= 5
+            and pygame.joystick.get_count() == 0
+        ):
+            os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
+            hidapi_toggled = True
+            print(">>> No joystick via evdev; retrying with HIDAPI enabled")
+            status_display.error("Retrying HIDAPI driver")
+            reinit_joystick()
     if not running:
         sys.exit(0)
     js = pygame.joystick.Joystick(0)
@@ -116,10 +192,20 @@ zoom_speed = MAX_ZOOM_SPEED
 last_zoom_dir = 0              # last zoom command sent
 zoom_stop_count = 0            # loops below stop threshold
 last_zoom_sent = 0.0           # ms timestamp of last zoom command
+last_input_log = 0.0
 status_display.camera_active(cur, CAMS[cur][0])
 status_display.boot("PTZ bridge ready")
 
-def send(pkt, cam):
+last_visca_log = 0.0
+# Legacy name used by earlier debug-logging patch; keep in sync to avoid
+# UnboundLocalError when a stale variable name is referenced.
+last_send_log = 0.0
+
+
+def send(pkt, cam, label: str | None = None):
+    """Send VISCA packet and optionally log the action when debugging."""
+
+    global last_visca_log, last_send_log
     ip, proto, port = cam
     try:
         if proto == "udp":
@@ -133,6 +219,18 @@ def send(pkt, cam):
     except OSError as exc:
         print(f">> Socket error to {ip}:{port}: {exc}")
         status_display.error("Socket send failed")
+    else:
+        if DEBUG_INPUT:
+            now = time.time()
+            if now - last_visca_log >= DEBUG_INPUT_INTERVAL:
+                hex_pkt = " ".join(f"{b:02X}" for b in pkt)
+                label_safe = label or "command"
+                label_txt = f" {label_safe}" if label_safe else ""
+                print(
+                    f">>> VISCA{label_txt} -> {proto}:{ip}:{port} len={len(pkt)} pkt=[{hex_pkt}]"
+                )
+                last_visca_log = now
+                last_send_log = now
 
 def visca_move(x, y, cam):
     """Drive pan/tilt according to joystick input."""
@@ -163,10 +261,10 @@ def visca_move(x, y, cam):
         tilt_speed = speed(y)
 
     pkt = bytes([0x81,0x01,0x06,0x01, pan_speed, tilt_speed, pan_dir, tilt_dir, 0xFF])
-    send(pkt, cam)
+    send(pkt, cam, "move")
 
 def visca_stop(cam):
-    send(b"\x81\x01\x06\x01\x00\x00\x03\x03\xFF", cam)
+    send(b"\x81\x01\x06\x01\x00\x00\x03\x03\xFF", cam, "stop")
 
 def zoom(direction, cam):          # direction: 1 tele, -1 wide, 0 stop
     if direction > 0:
@@ -175,7 +273,7 @@ def zoom(direction, cam):          # direction: 1 tele, -1 wide, 0 stop
         cmd = bytes([0x30 + zoom_speed])
     else:
         cmd = b"\x00"
-    send(b"\x81\x01\x04\x07" + cmd + b"\xFF", cam)
+    send(b"\x81\x01\x04\x07" + cmd + b"\xFF", cam, "zoom")
 
 def focus(direction, cam):         # direction: 1 far, -1 near, 0 stop
     if direction > 0:
@@ -184,10 +282,10 @@ def focus(direction, cam):         # direction: 1 far, -1 near, 0 stop
         cmd = b"\x03"
     else:
         cmd = b"\x00"
-    send(b"\x81\x01\x04\x08" + cmd + b"\xFF", cam)
+    send(b"\x81\x01\x04\x08" + cmd + b"\xFF", cam, "focus")
 
 def autofocus(cam):
-    send(b"\x81\x01\x04\x18\x01\xFF", cam)
+    send(b"\x81\x01\x04\x18\x01\xFF", cam, "autofocus")
 
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
@@ -286,6 +384,38 @@ while running:
         zoom(zoom_dir, cam)
         last_zoom_sent = now_ms
     last_zoom_dir = zoom_dir
+
+    if DEBUG_INPUT:
+        now = time.time()
+        if now - last_input_log >= DEBUG_INPUT_INTERVAL:
+            axes = {
+                "rx": f"{x:.2f}",
+                "ry": f"{y:.2f}",
+                "lx": f"{js.get_axis(0):.2f}",
+                "ly": f"{js.get_axis(1):.2f}",
+                "lt": f"{lt:.2f}",
+                "rt": f"{rt:.2f}",
+            }
+            buttons = {"A": js.get_button(0), "LB": js.get_button(4), "RB": js.get_button(5), "LS": js.get_button(9)}
+            print(
+                ">>> INPUT",
+                axes,
+                "hat=(",
+                hat_x,
+                hat_y,
+                ")",
+                "zoom_dir=",
+                zoom_dir,
+                "last_zoom_dir=",
+                last_zoom_dir,
+                "max_speed=",
+                max_speed,
+                "deadzone=",
+                f"{deadzone:.2f}",
+                "buttons=",
+                buttons,
+            )
+            last_input_log = now
 
     time.sleep(LOOP_MS / 1000)
 
