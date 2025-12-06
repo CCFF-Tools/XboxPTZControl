@@ -3,6 +3,10 @@
 import os
 import sys
 
+# Force SDL to use the headless video driver to avoid XDG runtime complaints on
+# systems without a graphical session (e.g., the service unit).
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+
 
 def ensure_runtime_dir() -> str:
     """Guarantee SDL has a writable runtime directory before importing pygame."""
@@ -107,12 +111,39 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     """Block until a joystick is available, returning it."""
     global bluetooth_linked
     status_display.joystick_wait()
-    while pygame.joystick.get_count() == 0 and running:
-        print(">>> Waiting for joystick connection...")
-        status_display.joystick_wait()
-        time.sleep(1)
+
+    def reinit_joystick() -> None:
         pygame.joystick.quit()
         pygame.joystick.init()
+
+    hidapi_env = os.environ.get("SDL_JOYSTICK_HIDAPI", "0")
+    hidapi_enabled = hidapi_env not in ("0", "false", "no")
+    hidapi_toggled = False
+    attempts = 0
+
+    while pygame.joystick.get_count() == 0 and running:
+        attempts += 1
+        print(">>> Waiting for joystick connection...")
+        status_display.joystick_wait()
+
+        devs = sorted(p for p in os.listdir("/dev/input") if p.startswith("js")) if os.path.isdir("/dev/input") else []
+        if devs:
+            print(f">>> /dev/input devices present: {', '.join(devs)}")
+
+        time.sleep(1)
+        reinit_joystick()
+
+        if (
+            not hidapi_enabled
+            and not hidapi_toggled
+            and attempts >= 5
+            and pygame.joystick.get_count() == 0
+        ):
+            os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
+            hidapi_toggled = True
+            print(">>> No joystick via evdev; retrying with HIDAPI enabled")
+            status_display.error("Retrying HIDAPI driver")
+            reinit_joystick()
     if not running:
         sys.exit(0)
     js = pygame.joystick.Joystick(0)

@@ -110,7 +110,7 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 | Symptom | Fix |
 |---------|-----|
 | Service prints `Waiting for joystick connection…` | Check USB cable/port; `lsusb` should list the Xbox controller. |
-| Controller works with `jstest` but OLED stays on “Waiting for joystick” | Ensure the `ptzpad` user is in the `input` group so it can open `/dev/input/js*`, then restart the service or replug the controller. If that already holds, set `SDL_JOYSTICK_HIDAPI=0` (the installer now does this) so `pygame` uses the evdev joystick driver instead of the HID backend. |
+| Controller works with `jstest` but OLED stays on “Waiting for joystick” | Ensure the `ptzpad` user is in the `input` group so it can open `/dev/input/js*`, then restart the service or replug the controller. The service now forces the headless SDL “dummy” video driver and will automatically retry with `SDL_JOYSTICK_HIDAPI=1` if evdev devices (e.g., `/dev/input/js0`) exist but pygame still reports zero joysticks. |
 | Journal shows `XDG_RUNTIME_DIR is invalid or not set` | Install via `install.sh` or set `XDG_RUNTIME_DIR=/run/ptzpad`, `RuntimeDirectory=ptzpad`, and `RuntimeDirectoryMode=0700` in the service so SDL/pygame have a writable runtime directory. The script sets the env var before importing pygame and creates `/run/ptzpad` with mode 0700 at startup if the env var is missing. |
 | OLED stays blank or shows garbled text | Confirm the display answers at `0x3C` with `i2cdetect -y 1`, and recheck SDA (GPIO 2) / SCL (GPIO 3) wiring, 3.3 V power, and ground. |
 | `Connection refused` | Wrong port or VISCA-TCP disabled in camera web UI. |

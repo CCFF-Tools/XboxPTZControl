@@ -103,6 +103,7 @@ StartLimitIntervalSec=0
 [Service]
 User=${TARGET_USER}
 Environment=SDL_JOYSTICK_HIDAPI=0
+Environment=SDL_VIDEODRIVER=dummy
 Environment=XDG_RUNTIME_DIR=/run/ptzpad
 ExecStart=/usr/bin/python3 ${TARGET_HOME}/ptzpad.py
 WorkingDirectory=${TARGET_HOME}
