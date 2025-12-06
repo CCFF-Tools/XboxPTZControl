@@ -197,12 +197,15 @@ status_display.camera_active(cur, CAMS[cur][0])
 status_display.boot("PTZ bridge ready")
 
 last_visca_log = 0.0
+# Legacy name used by earlier debug-logging patch; keep in sync to avoid
+# UnboundLocalError when a stale variable name is referenced.
+last_send_log = 0.0
 
 
 def send(pkt, cam, label: str | None = None):
     """Send VISCA packet and optionally log the action when debugging."""
 
-    global last_visca_log
+    global last_visca_log, last_send_log
     ip, proto, port = cam
     if DEBUG_INPUT:
         now = time.time()
@@ -238,6 +241,7 @@ def send(pkt, cam, label: str | None = None):
                     f">>> VISCA{label_txt} -> {proto}:{ip}:{port} len={len(pkt)} pkt=[{hex_pkt}]"
                 )
                 last_visca_log = now
+                last_send_log = now
 
 def visca_move(x, y, cam):
     """Drive pan/tilt according to joystick input."""
