@@ -87,6 +87,8 @@ ZOOM_STOP_DEADZONE = 0.05       # smaller slack to stop zoom
 ZOOM_REPEAT_MS = 200            # repeat zoom command every N ms
 ZOOM_STOP_LOOPS = 3             # require this many loops below stop threshold
 LOOP_MS = 50                    # command period (ms)
+DEBUG_INPUT = os.environ.get("PTZPAD_DEBUG_INPUT", "").lower() in ("1", "true", "yes")
+DEBUG_INPUT_INTERVAL = 0.25     # seconds between debug samples
 # ---------------------------------------------------------------------------
 
 running = True
@@ -112,16 +114,6 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     global bluetooth_linked
     status_display.joystick_wait()
 
-    error_displayed = False
-    error_display_time = 0.0
-    error_hold_seconds = 2.5
-
-    def remember_error(message: str) -> None:
-        nonlocal error_displayed, error_display_time
-        status_display.error(message)
-        error_displayed = True
-        error_display_time = time.time()
-
     def reinit_joystick() -> None:
         pygame.joystick.quit()
         pygame.joystick.init()
@@ -130,70 +122,29 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     hidapi_enabled = hidapi_env not in ("0", "false", "no")
     hidapi_toggled = False
     attempts = 0
-    last_error = ""
-
-    def log_backend_error(message: str, oled_message: str) -> None:
-        nonlocal last_error
-        if message != last_error:
-            print(message)
-            last_error = message
-            remember_error(oled_message)
-
-    def diagnose_evdev(devices: list[str], backend: str) -> None:
-        """Probe /dev/input devices for clearer failure reasons."""
-
-        opened = False
-        for dev in devices:
-            path = f"/dev/input/{dev}"
-            try:
-                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-                os.close(fd)
-                opened = True
-            except PermissionError as exc:
-                log_backend_error(
-                    f">>> Permission denied opening {path} via {backend}: {exc}",
-                    "evdev permission",
-                )
-                return
-            except OSError as exc:
-                log_backend_error(
-                    f">>> Failed to open {path} via {backend}: {exc}",
-                    "evdev IO error",
-                )
-                return
-
-        if opened:
-            log_backend_error(
-                ">>> evdev devices open but pygame still reports 0 joysticks",
-                "evdev OK, pygame 0",
-            )
-
-    def diagnose_hidapi() -> None:
-        try:
-            probe = pygame.joystick.Joystick(0)
-            probe.init()
-        except Exception as exc:  # pylint: disable=broad-except
-            log_backend_error(
-                f">>> HIDAPI joystick init failed: {exc}",
-                "hidapi blocked",
-            )
 
     while pygame.joystick.get_count() == 0 and running:
         attempts += 1
         print(">>> Waiting for joystick connection...")
+        status_display.joystick_wait()
 
-        now = time.time()
-        if not error_displayed or now - error_display_time >= error_hold_seconds:
-            error_displayed = False
-            status_display.joystick_wait()
-
-        backend = "hidapi" if (hidapi_enabled or hidapi_toggled) else "evdev"
         devs = sorted(p for p in os.listdir("/dev/input") if p.startswith("js")) if os.path.isdir("/dev/input") else []
         if devs:
             print(f">>> /dev/input devices present: {', '.join(devs)}")
-            diagnose_evdev(devs, backend)
+
+            for dev in devs:
+                path = os.path.join("/dev/input", dev)
+                try:
+                    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                except OSError as exc:
+                    print(f">>> Unable to open {path}: {exc}")
+                    status_display.error("Joystick open failed")
+                    continue
+                else:
+                    os.close(fd)
+                    print(f">>> {path} is readable (perm ok)")
         else:
-            diagnose_hidapi()
+            print(">>> No /dev/input/js* devices found")
 
         time.sleep(1)
         reinit_joystick()
@@ -207,7 +158,7 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
             os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
             hidapi_toggled = True
             print(">>> No joystick via evdev; retrying with HIDAPI enabled")
-            remember_error("Retrying HIDAPI driver")
+            status_display.error("Retrying HIDAPI driver")
             reinit_joystick()
     if not running:
         sys.exit(0)
@@ -231,6 +182,7 @@ zoom_speed = MAX_ZOOM_SPEED
 last_zoom_dir = 0              # last zoom command sent
 zoom_stop_count = 0            # loops below stop threshold
 last_zoom_sent = 0.0           # ms timestamp of last zoom command
+last_input_log = 0.0
 status_display.camera_active(cur, CAMS[cur][0])
 status_display.boot("PTZ bridge ready")
 
@@ -401,6 +353,38 @@ while running:
         zoom(zoom_dir, cam)
         last_zoom_sent = now_ms
     last_zoom_dir = zoom_dir
+
+    if DEBUG_INPUT:
+        now = time.time()
+        if now - last_input_log >= DEBUG_INPUT_INTERVAL:
+            axes = {
+                "rx": f"{x:.2f}",
+                "ry": f"{y:.2f}",
+                "lx": f"{js.get_axis(0):.2f}",
+                "ly": f"{js.get_axis(1):.2f}",
+                "lt": f"{lt:.2f}",
+                "rt": f"{rt:.2f}",
+            }
+            buttons = {"A": js.get_button(0), "LB": js.get_button(4), "RB": js.get_button(5), "LS": js.get_button(9)}
+            print(
+                ">>> INPUT",
+                axes,
+                "hat=(",
+                hat_x,
+                hat_y,
+                ")",
+                "zoom_dir=",
+                zoom_dir,
+                "last_zoom_dir=",
+                last_zoom_dir,
+                "max_speed=",
+                max_speed,
+                "deadzone=",
+                f"{deadzone:.2f}",
+                "buttons=",
+                buttons,
+            )
+            last_input_log = now
 
     time.sleep(LOOP_MS / 1000)
 
