@@ -112,6 +112,16 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     global bluetooth_linked
     status_display.joystick_wait()
 
+    error_displayed = False
+    error_display_time = 0.0
+    error_hold_seconds = 2.5
+
+    def remember_error(message: str) -> None:
+        nonlocal error_displayed, error_display_time
+        status_display.error(message)
+        error_displayed = True
+        error_display_time = time.time()
+
     def reinit_joystick() -> None:
         pygame.joystick.quit()
         pygame.joystick.init()
@@ -126,8 +136,8 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
         nonlocal last_error
         if message != last_error:
             print(message)
-            status_display.error(oled_message)
             last_error = message
+            remember_error(oled_message)
 
     def diagnose_evdev(devices: list[str], backend: str) -> None:
         """Probe /dev/input devices for clearer failure reasons."""
@@ -171,7 +181,11 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     while pygame.joystick.get_count() == 0 and running:
         attempts += 1
         print(">>> Waiting for joystick connection...")
-        status_display.joystick_wait()
+
+        now = time.time()
+        if not error_displayed or now - error_display_time >= error_hold_seconds:
+            error_displayed = False
+            status_display.joystick_wait()
 
         backend = "hidapi" if (hidapi_enabled or hidapi_toggled) else "evdev"
         devs = sorted(p for p in os.listdir("/dev/input") if p.startswith("js")) if os.path.isdir("/dev/input") else []
@@ -193,7 +207,7 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
             os.environ["SDL_JOYSTICK_HIDAPI"] = "1"
             hidapi_toggled = True
             print(">>> No joystick via evdev; retrying with HIDAPI enabled")
-            status_display.error("Retrying HIDAPI driver")
+            remember_error("Retrying HIDAPI driver")
             reinit_joystick()
     if not running:
         sys.exit(0)
