@@ -183,11 +183,25 @@ last_zoom_dir = 0              # last zoom command sent
 zoom_stop_count = 0            # loops below stop threshold
 last_zoom_sent = 0.0           # ms timestamp of last zoom command
 last_input_log = 0.0
+last_send_log = 0.0
 status_display.camera_active(cur, CAMS[cur][0])
 status_display.boot("PTZ bridge ready")
 
-def send(pkt, cam):
+def send(pkt, cam, action: str | None = None):
+    global last_send_log
     ip, proto, port = cam
+    if DEBUG_INPUT:
+        now = time.time()
+        if now - last_send_log >= DEBUG_INPUT_INTERVAL:
+            print(
+                ">>> SEND",
+                (action or "command").upper(),
+                f"to {ip}:{port} ({proto})",
+                f"len={len(pkt)}",
+                "bytes:",
+                pkt.hex(" "),
+            )
+            last_send_log = now
     try:
         if proto == "udp":
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -230,10 +244,10 @@ def visca_move(x, y, cam):
         tilt_speed = speed(y)
 
     pkt = bytes([0x81,0x01,0x06,0x01, pan_speed, tilt_speed, pan_dir, tilt_dir, 0xFF])
-    send(pkt, cam)
+    send(pkt, cam, action="pan/tilt")
 
 def visca_stop(cam):
-    send(b"\x81\x01\x06\x01\x00\x00\x03\x03\xFF", cam)
+    send(b"\x81\x01\x06\x01\x00\x00\x03\x03\xFF", cam, action="pan/tilt")
 
 def zoom(direction, cam):          # direction: 1 tele, -1 wide, 0 stop
     if direction > 0:
@@ -242,7 +256,7 @@ def zoom(direction, cam):          # direction: 1 tele, -1 wide, 0 stop
         cmd = bytes([0x30 + zoom_speed])
     else:
         cmd = b"\x00"
-    send(b"\x81\x01\x04\x07" + cmd + b"\xFF", cam)
+    send(b"\x81\x01\x04\x07" + cmd + b"\xFF", cam, action="zoom")
 
 def focus(direction, cam):         # direction: 1 far, -1 near, 0 stop
     if direction > 0:
@@ -251,10 +265,10 @@ def focus(direction, cam):         # direction: 1 far, -1 near, 0 stop
         cmd = b"\x03"
     else:
         cmd = b"\x00"
-    send(b"\x81\x01\x04\x08" + cmd + b"\xFF", cam)
+    send(b"\x81\x01\x04\x08" + cmd + b"\xFF", cam, action="focus")
 
 def autofocus(cam):
-    send(b"\x81\x01\x04\x18\x01\xFF", cam)
+    send(b"\x81\x01\x04\x18\x01\xFF", cam, action="focus")
 
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
