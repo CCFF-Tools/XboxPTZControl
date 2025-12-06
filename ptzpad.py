@@ -207,6 +207,18 @@ def send(pkt, cam, label: str | None = None):
 
     global last_visca_log, last_send_log
     ip, proto, port = cam
+    if DEBUG_INPUT:
+        now = time.time()
+        if now - last_send_log >= DEBUG_INPUT_INTERVAL:
+            print(
+                ">>> SEND",
+                (action or "command").upper(),
+                f"to {ip}:{port} ({proto})",
+                f"len={len(pkt)}",
+                "bytes:",
+                pkt.hex(" "),
+            )
+            last_send_log = now
     try:
         if proto == "udp":
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
