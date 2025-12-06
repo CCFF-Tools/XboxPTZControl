@@ -236,7 +236,8 @@ def send(pkt, cam, label: str | None = None):
             now = time.time()
             if now - last_visca_log >= DEBUG_INPUT_INTERVAL:
                 hex_pkt = " ".join(f"{b:02X}" for b in pkt)
-                label_txt = f" {label}" if label else ""
+                label_safe = label or "command"
+                label_txt = f" {label_safe}" if label_safe else ""
                 print(
                     f">>> VISCA{label_txt} -> {proto}:{ip}:{port} len={len(pkt)} pkt=[{hex_pkt}]"
                 )
