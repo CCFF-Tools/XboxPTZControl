@@ -9,6 +9,12 @@ Camera and tuning settings are stored atomically in `~/.config/ptzpad/config.jso
 The token protects every API, including status and logs. Keep port 8080 on a trusted LAN; this service does not provide TLS. Set `PTZPAD_BIND`, `PTZPAD_PORT`, `PTZPAD_TOKEN_FILE`, or `PTZPAD_STATE` in the dashboard unit to customize deployment. Rotate the token by deleting the token file and restarting `ptzpad-dashboard`.
 
 If the dashboard reports stale/offline, check `systemctl status ptzpad-dashboard ptzpad` and `journalctl -u ptzpad.service`.
+
+### Adding, testing, and discovering cameras
+
+Use **Add camera** to create an editable camera row, then enter its name, model, address, VISCA protocol, and port. **Test** opens the configured endpoint and sends the read-only VISCA version inquiry; it never moves the camera. A successful connection is still reported when a camera does not implement the version inquiry.
+
+**Discover cameras** suggests a subnet attached directly to the Raspberry Pi and scans the selected VISCA port. For safety, discovery accepts only directly attached RFC 1918 IPv4 networks with a `/24` or narrower prefix, scans at most 256 addresses with bounded concurrency, and has a cooldown. Manual camera tests have the same local-network restriction. Review the results and click **Add camera**, then **Save changes** to hot-reload the bridge configuration.
 Turn any Raspberry Pi 3 B (or newer) into a headless VISCA-over-IP joystick server that lets an Xbox One / Series X|S controller drive one or many PTZOptics cameras.
 
 ## Repository structure
@@ -139,3 +145,4 @@ rm -f ~/ptzpad.py ~/ptz_dashboard.py ~/ptz_config.py ~/oled_status.py
 # Optional: remove saved configuration and the dashboard token.
 rm -rf ~/.config/ptzpad
 ```
+The Cameras card supports VISCA version testing and private-LAN discovery. Discovery accepts only private or link-local IPv4 `/24` networks (up to 256 addresses), uses bounded concurrent probes, and never sends motion commands. Review results before adding them to configuration. Keep access restricted to a trusted LAN; all API mutations require the per-install token and same-origin requests.

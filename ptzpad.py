@@ -407,6 +407,30 @@ def switch_camera(new_index: int) -> int:
     last_zoom_sent = 0.0
     return new_index
 
+
+def read_dpad(joystick) -> tuple[int, int]:
+    """Read D-pad as an SDL hat, falling back to standard Xbox buttons."""
+    try:
+        if joystick.get_numhats() > 0:
+            hat_x, hat_y = joystick.get_hat(0)
+            if hat_x or hat_y:
+                return hat_x, hat_y
+    except (AttributeError, pygame.error):
+        pass
+    # HIDAPI exposes Xbox D-pad directions as buttons 11..14.  Guard the
+    # lookup because some controllers advertise fewer buttons.
+    try:
+        button_count = joystick.get_numbuttons()
+    except (AttributeError, pygame.error):
+        button_count = 0
+    if button_count < 15:
+        return 0, 0
+    return (
+        int(joystick.get_button(14)) - int(joystick.get_button(13)),
+        int(joystick.get_button(11)) - int(joystick.get_button(12)),
+    )
+
+
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
     reload_config_if_changed()
@@ -432,8 +456,10 @@ while running:
         print(">> Control switched to CAM", cur + 1, CAMS[cur][0])
         status_display.camera_active(cur, CAMS[cur][0])
 
-    # adjust max speed / deadzone with D-pad
-    hat_x, hat_y = js.get_hat(0)
+    # Adjust max speed / deadzone with D-pad.  SDL exposes the Xbox D-pad as
+    # a hat on some drivers and as buttons on others (notably HIDAPI), so
+    # accept either representation.
+    hat_x, hat_y = read_dpad(js)
     if hat_y == 1:
         max_speed = min(max_speed + 1, MAX_SPEED)
         time.sleep(0.25)

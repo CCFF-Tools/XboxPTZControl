@@ -24,6 +24,11 @@ def _camera(value):
             "name": str(value.get("name", host))[:80], "model": str(value.get("model", ""))[:80]}
 
 
+def validate_camera(value):
+    """Validate and normalize one camera entry."""
+    return _camera(value)
+
+
 def validate_config(value):
     if not isinstance(value, dict):
         raise ValueError("config must be an object")

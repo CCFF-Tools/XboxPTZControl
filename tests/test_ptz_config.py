@@ -23,6 +23,22 @@ class ConfigTests(unittest.TestCase):
         cfg = load_config({"PTZPAD_CONFIG": "/missing/config", "PTZ_CAMS": "tcp:cam.example:5678"})
         self.assertEqual(cfg["cameras"][0]["protocol"], "tcp")
 
+    def test_camera_model_metadata_is_preserved(self):
+        config = validate_config(
+            {
+                "cameras": [
+                    {
+                        "host": "192.168.1.20",
+                        "protocol": "tcp",
+                        "port": 5678,
+                        "name": "Stage left",
+                        "model": "Move 4K",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(config["cameras"][0]["model"], "Move 4K")
+
 
 if __name__ == "__main__":
     unittest.main()
