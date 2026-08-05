@@ -55,6 +55,13 @@ import json
 from pathlib import Path
 from ptz_config import load_config
 from zoom_control import ZoomCommandState, next_zoom_command
+from input_control import (
+    ButtonEdges,
+    MotionState,
+    ZoomTriggerState,
+    controller_layout,
+    resolve_zoom_direction,
+)
 
 try:
     sys.stdout.reconfigure(line_buffering=True)
@@ -142,9 +149,8 @@ DEADZONE = 0.15                 # stick slack
 FOCUS_DEADZONE = 0.20           # left stick focus deadzone
 MAX_ZOOM_SPEED = 0x07           # 0x00 (slow) ... 0x07 (fast)
 ZOOM_START_DEADZONE = 0.10      # trigger slack for zoom start
-ZOOM_STOP_DEADZONE = 0.05       # smaller slack to stop zoom
-ZOOM_REPEAT_MS = 200            # TCP repeat interval while trigger is held
-UDP_STOP_PACKETS = 3             # total stop packets sent for UDP reliability
+ZOOM_STOP_PACKETS = 3            # total normal-trigger stop packets
+UDP_STOP_PACKETS = 3              # total lifecycle stop packets for UDP
 ZOOM_STOP_LOOPS = 3             # require this many loops below stop threshold
 LOOP_MS = 50                    # command period (ms)
 DEBUG_INPUT_RAW = os.environ.get("PTZPAD_DEBUG_INPUT", "")
@@ -163,6 +169,7 @@ _started = time.time()
 _state_path = Path(os.environ.get("PTZPAD_STATE", "/run/ptzpad/status.json"))
 _last_state_write = 0.0
 _camera_send = {}
+_input_telemetry = {"lt": None, "rt": None, "zoom_value": None, "zoom_direction": 0, "protocol": None}
 
 
 def publish_state(force=False):
@@ -174,7 +181,7 @@ def publish_state(force=False):
                "active_camera": cur, "controller": {"name": js.get_name() if js else "",
                "connected": controller_connected, "wireless": bluetooth_linked},
                "max_speed": max_speed, "deadzone": deadzone, "zoom_speed": zoom_speed,
-               "camera_send": _camera_send}
+               "camera_send": _camera_send, "input": _input_telemetry}
     try:
         _state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         tmp = _state_path.with_suffix(".tmp")
@@ -277,7 +284,9 @@ max_speed = MAX_SPEED
 deadzone = DEADZONE
 zoom_speed = MAX_ZOOM_SPEED
 zoom_state = ZoomCommandState()
-zoom_stop_count = 0            # loops below stop threshold
+zoom_trigger_state = ZoomTriggerState()
+motion_state = MotionState()
+button_edges = ButtonEdges()
 last_input_log = 0.0
 status_display.camera_active(cur, CAMS[cur][0])
 status_display.boot("PTZ bridge ready")
@@ -297,7 +306,7 @@ def reload_config_if_changed():
     except ValueError: return
     new = [(c["host"], c["protocol"], c["port"]) for c in cfg["cameras"]]
     if new != CAMS:
-        stop_all_motion(CAMS[cur]); CAMS = new; cur = min(cur, len(CAMS) - 1); zoom_state.reset(); status_display.camera_active(cur, CAMS[cur][0])
+        stop_all_motion(CAMS[cur]); CAMS = new; cur = min(cur, len(CAMS) - 1); reset_input_state(); status_display.camera_active(cur, CAMS[cur][0])
     max_speed, deadzone, zoom_speed = cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]
 
 
@@ -306,6 +315,9 @@ def send(pkt, cam, label: str | None = None):
 
     global last_send_log
     ip, proto, port = cam
+    camera_state = _camera_send.setdefault(ip, {})
+    camera_state.update({"last_command": label or "command", "protocol": proto,
+                         "last_command_at": time.time()})
     if DEBUG_INPUT:
         now = time.time()
         if now - last_send_log >= DEBUG_INPUT_INTERVAL:
@@ -328,9 +340,9 @@ def send(pkt, cam, label: str | None = None):
                 s.settimeout(0.3)
                 s.connect((ip, port))
                 s.sendall(pkt)
-        _camera_send.setdefault(cam[0], {})["last_success"] = time.time()
+        camera_state["last_success"] = time.time()
     except OSError as exc:
-        _camera_send.setdefault(cam[0], {})["last_error"] = time.time()
+        camera_state["last_error"] = time.time()
         print(f">> Socket error to {ip}:{port}: {exc}")
         status_display.error("Socket send failed")
         publish_state(force=True)
@@ -363,8 +375,9 @@ def visca_move(x, y, cam):
         tilt_dir = 0x02
         tilt_speed = speed(y)
 
-    pkt = bytes([0x81,0x01,0x06,0x01, pan_speed, tilt_speed, pan_dir, tilt_dir, 0xFF])
-    send(pkt, cam, "move")
+    command = (pan_speed, tilt_speed, pan_dir, tilt_dir)
+    if motion_state.move_changed(command, cam[1], UDP_STOP_PACKETS):
+        send(bytes([0x81, 0x01, 0x06, 0x01, *command, 0xFF]), cam, "move")
 
 def visca_stop(cam):
     send(b"\x81\x01\x06\x01\x00\x00\x03\x03\xFF", cam, "stop")
@@ -392,23 +405,37 @@ def autofocus(cam):
 
 
 def stop_all_motion(cam):
-    """Stop pan/tilt, zoom, and focus, retrying UDP zoom stops briefly."""
-    visca_stop(cam)
+    """Stop pan/tilt, zoom, and focus with bounded UDP stop-set retries."""
     stop_packets = UDP_STOP_PACKETS if cam[1].lower() == "udp" else 1
     for packet_index in range(stop_packets):
+        visca_stop(cam)
         zoom(0, cam)
+        focus(0, cam)
         if packet_index + 1 < stop_packets:
             time.sleep(LOOP_MS / 1000)
-    focus(0, cam)
+
+
+def reset_input_state() -> None:
+    """Clear command suppression and trigger state after lifecycle changes."""
+
+    zoom_state.reset()
+    zoom_trigger_state.reset()
+    motion_state.reset()
+    button_edges.reset()
+    _input_telemetry.update({
+        "lt": None,
+        "rt": None,
+        "zoom_value": None,
+        "zoom_direction": 0,
+        "protocol": None,
+    })
 
 
 def switch_camera(new_index: int) -> int:
     """Stop all motion on the current camera before selecting another."""
-    global zoom_stop_count
     old_cam = CAMS[cur]
     stop_all_motion(old_cam)
-    zoom_state.reset()
-    zoom_stop_count = 0
+    reset_input_state()
     return new_index
 
 
@@ -435,6 +462,15 @@ def read_dpad(joystick) -> tuple[int, int]:
     )
 
 
+def read_button(joystick, index: int) -> bool:
+    """Read a button only when the controller advertises that index."""
+
+    try:
+        return bool(index < joystick.get_numbuttons() and joystick.get_button(index))
+    except (AttributeError, pygame.error):
+        return False
+
+
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
     reload_config_if_changed()
@@ -444,14 +480,13 @@ while running:
     if pygame.joystick.get_count() == 0:
         print(">>> Joystick disconnected")
         controller_connected = False
-        publish_state(force=True)
         status_display.joystick_disconnected()
         if bluetooth_linked:
             status_display.bluetooth_disconnected()
             bluetooth_linked = False
         stop_all_motion(CAMS[cur])
-        zoom_state.reset()
-        zoom_stop_count = 0
+        reset_input_state()
+        publish_state(force=True)
         js = wait_for_joystick()
         status_display.camera_active(cur, CAMS[cur][0])
         continue
@@ -466,6 +501,17 @@ while running:
     # a hat on some drivers and as buttons on others (notably HIDAPI), so
     # accept either representation.
     hat_x, hat_y = read_dpad(js)
+    try:
+        button_count = js.get_numbuttons()
+        hat_count = js.get_numhats()
+    except (AttributeError, pygame.error):
+        button_count, hat_count = 0, 0
+    layout = controller_layout(button_count, hat_count)
+    edges = button_edges.rising({
+        "LB": read_button(js, layout.lb),
+        "RB": read_button(js, layout.rb),
+        "LS": read_button(js, layout.ls),
+    })
     if hat_y == 1:
         max_speed = min(max_speed + 1, MAX_SPEED)
         time.sleep(0.25)
@@ -485,60 +531,50 @@ while running:
         print(f">> DEADZONE {deadzone:.2f}")
 
     # adjust zoom speed with RB (increase) / LB (decrease) bumpers
-    if js.get_button(5):
+    if "RB" in edges:
         zoom_speed = min(zoom_speed + 1, MAX_ZOOM_SPEED)
-        time.sleep(0.25)
         print(">> ZOOM_SPEED", zoom_speed)
-    elif js.get_button(4):
+    elif "LB" in edges:
         zoom_speed = max(zoom_speed - 1, 0x00)
-        time.sleep(0.25)
         print(">> ZOOM_SPEED", zoom_speed)
 
     cam = CAMS[cur]
     x, y = js.get_axis(2), -js.get_axis(3)   # right stick (invert Y)
-    if abs(x) > deadzone or abs(y) > deadzone:
-        visca_move(x, y, cam)
-    else:
-        visca_stop(cam)
+    visca_move(x, y, cam)
 
     fy = -js.get_axis(1)                     # left stick Y for focus
     if fy > FOCUS_DEADZONE:
-        focus(1, cam)
+        focus_dir = 1
     elif fy < -FOCUS_DEADZONE:
-        focus(-1, cam)
+        focus_dir = -1
     else:
-        focus(0, cam)
+        focus_dir = 0
+    focus_cmd = motion_state.next_focus(focus_dir, cam[1], UDP_STOP_PACKETS)
+    if focus_cmd is not None:
+        focus(focus_cmd, cam)
 
-    if js.get_button(9):                     # left stick click
+    if "LS" in edges:                       # left stick click
         autofocus(cam)
-        time.sleep(0.25)
 
     rt = (js.get_axis(4) + 1) / 2  # right trigger (0..1)
     lt = (js.get_axis(5) + 1) / 2  # left trigger (0..1)
     zoom_val = rt - lt              # combine triggers
 
-    if abs(zoom_val) > ZOOM_START_DEADZONE:
-        zoom_dir = 1 if zoom_val > 0 else -1
-        zoom_stop_count = 0
-    elif abs(zoom_val) < ZOOM_STOP_DEADZONE:
-        zoom_stop_count += 1
-        if zoom_stop_count >= ZOOM_STOP_LOOPS:
-            zoom_dir = 0
-        else:
-            zoom_dir = zoom_state.last_direction
-    else:
-        zoom_dir = zoom_state.last_direction
-        zoom_stop_count = 0
-
-    now_ms = time.time() * 1000
-    zoom_cmd = next_zoom_command(
-        zoom_dir,
-        cam[1],
-        now_ms,
-        zoom_state,
-        repeat_ms=ZOOM_REPEAT_MS,
-        udp_stop_packets=UDP_STOP_PACKETS,
+    zoom_dir = resolve_zoom_direction(
+        zoom_val,
+        zoom_trigger_state,
+        start_deadzone=ZOOM_START_DEADZONE,
+        release_loops=ZOOM_STOP_LOOPS,
     )
+    _input_telemetry.update({
+        "lt": round(lt, 3),
+        "rt": round(rt, 3),
+        "zoom_value": round(zoom_val, 3),
+        "zoom_direction": zoom_dir,
+        "protocol": cam[1],
+    })
+
+    zoom_cmd = next_zoom_command(zoom_dir, zoom_state, stop_packets=ZOOM_STOP_PACKETS)
     if zoom_cmd is not None:
         zoom(zoom_cmd, cam)
 
@@ -553,7 +589,7 @@ while running:
                 "lt": f"{lt:.2f}",
                 "rt": f"{rt:.2f}",
             }
-            buttons = {"A": js.get_button(0), "LB": js.get_button(4), "RB": js.get_button(5), "LS": js.get_button(9)}
+            buttons = {"A": read_button(js, 0), "LB": read_button(js, layout.lb), "RB": read_button(js, layout.rb), "LS": read_button(js, layout.ls)}
             print(
                 ">>> INPUT",
                 axes,

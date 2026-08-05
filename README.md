@@ -25,7 +25,7 @@ The main deliverable is a single installation script (`install.sh`) that:
 - Writes the `ptzpad.py` controller bridge to the invoking user's home directory
 - Creates and enables a `ptzpad.service` so the bridge starts on boot
 
-The installer copies `ptzpad.py`, its `zoom_control.py` scheduler, and `oled_status.py` into the invoking user's home directory. The driver reads camera IP/port from environment variables, polls the controller with `pygame`, and sends VISCA-over-IP commands over TCP or UDP.
+The installer copies `ptzpad.py`, its `zoom_control.py` and `input_control.py` schedulers, and `oled_status.py` into the invoking user's home directory. The driver reads camera IP/port from environment variables, polls the controller with `pygame`, and sends VISCA-over-IP commands over TCP or UDP.
 
 ## Quick start
 
@@ -83,18 +83,17 @@ For example, when using a software I2C overlay on GPIO 23/24 configured as bus 3
 | Right stick | Pan / tilt (speed scales with a cubic curve for a smoother ramp) |
 | Left stick up/down | Focus far/near (medium deadzone) |
 | Left stick click | One-time autofocus |
-| RT | Zoom in (TCP repeats while held; UDP sends on direction changes) |
-| LT | Zoom out (TCP repeats while held; UDP sends on direction changes) |
+| RT | Zoom in (both protocols start on direction changes; release sends 3 stops) |
+| LT | Zoom out (both protocols start on direction changes; release sends 3 stops) |
 | A | Cycle to next camera |
 | D-pad up/down | Increase / decrease max speed |
 | D-pad left/right | Increase / decrease deadzone |
 | RB / LB | Increase / decrease zoom speed |
 
 Zoom speed value `0` (including the dashboard setting) is the slowest zoom
-speed; it does not disable zoom. TCP cameras receive periodic start packets
-while a trigger is held. UDP cameras receive a start packet only when the
-zoom direction changes, and a short bounded burst of stop packets is sent when
-the trigger is released to tolerate packet loss.
+speed; it does not disable zoom. Both TCP and UDP cameras receive a start packet only
+when the zoom direction changes, followed by a bounded three-packet stop burst
+when the trigger is released to tolerate packet loss.
 
 ## Customising after install
 
@@ -107,7 +106,7 @@ export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
 # format: proto:ip[:port] (defaults 5678 TCP, 1259 UDP)
 ```
 
-- Adjust speed / dead-zone / zoom speed / zoom dead-zone: use the D-pad or RB/LB bumpers, or edit `MAX_SPEED`, `DEADZONE`, `MAX_ZOOM_SPEED`, `ZOOM_START_DEADZONE` and `ZOOM_STOP_DEADZONE` in `~/ptzpad.py`.
+- Adjust speed / dead-zone / zoom speed: use the D-pad or RB/LB bumpers, or edit `MAX_SPEED`, `DEADZONE`, `MAX_ZOOM_SPEED`, `ZOOM_START_DEADZONE` and `ZOOM_STOP_LOOPS` in `~/ptzpad.py`.
 
 ## Service management
 
@@ -131,7 +130,7 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 | OLED stays blank or shows garbled text | Confirm the display answers at `0x3C` on the configured bus (default `i2cdetect -y 3`), and recheck SDA (GPIO 2) / SCL (GPIO 3) wiring, 3.3 V power, and ground. |
 | `Connection refused` | Wrong port or VISCA-TCP disabled in camera web UI. |
 | Jerky / slow moves | Keep ≥40 ms between VISCA packets (`LOOP_MS`), use wired LAN. |
-| Zoom jitter or stops while holding trigger | Tweak `ZOOM_START_DEADZONE`/`ZOOM_STOP_DEADZONE` to filter trigger noise. TCP repeats starts at `ZOOM_REPEAT_MS`; UDP sends starts only on direction changes and retries stop packets briefly. Zoom continues until the trigger rests inside the stop deadzone for a few loops. A dashboard zoom speed of `0` is slowest, not disabled. |
+| Zoom jitter or stops while holding trigger | Tweak `ZOOM_START_DEADZONE` to filter trigger noise. Both TCP and UDP send starts only on direction changes, then issue three stop packets when released. A dashboard zoom speed of `0` is slowest, not disabled. |
 | Lag after 30 s idle | Some cameras drop idle TCP; check the camera's network timeout and use wired LAN where possible. |
 
 ## Where to go next
@@ -147,7 +146,7 @@ sudo systemctl disable --now ptzpad-dashboard ptzpad
 sudo rm /etc/systemd/system/ptzpad-dashboard.service /etc/systemd/system/ptzpad.service
 sudo rm -f /etc/default/ptzpad
 sudo systemctl daemon-reload
-rm -f ~/ptzpad.py ~/zoom_control.py ~/ptz_dashboard.py ~/ptz_config.py ~/oled_status.py
+rm -f ~/ptzpad.py ~/zoom_control.py ~/input_control.py ~/ptz_dashboard.py ~/ptz_config.py ~/oled_status.py
 # Optional: remove saved configuration and the dashboard token.
 rm -rf ~/.config/ptzpad
 ```
