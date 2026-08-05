@@ -1,5 +1,14 @@
 # XboxPTZControl
 
+## LAN dashboard
+
+The installer also enables `ptzpad-dashboard.service`, a dependency-free browser dashboard on port 8080. Open `http://<raspberry-pi-ip>:8080/` and enter the token from `~/.config/ptzpad/token` (mode 600). The dashboard shows bridge health, host load and uptime, camera reachability/address/model metadata, connected joystick devices, live tuning values, and searchable journal logs.
+
+Camera and tuning settings are stored atomically in `~/.config/ptzpad/config.json`. The dashboard validates edits and ptzpad hot-reloads them, stopping motion on a replaced camera. Existing `PTZ_CAMS` remains supported as a fallback. Runtime state is published to `/run/ptzpad/status.json`; if permissions prevent that path, choose a user-writable `PTZPAD_STATE`.
+
+The token protects every API, including status and logs. Keep port 8080 on a trusted LAN; this service does not provide TLS. Set `PTZPAD_BIND`, `PTZPAD_PORT`, `PTZPAD_TOKEN_FILE`, or `PTZPAD_STATE` in the dashboard unit to customize deployment. Rotate the token by deleting the token file and restarting `ptzpad-dashboard`.
+
+If the dashboard reports stale/offline, check `systemctl status ptzpad-dashboard ptzpad` and `journalctl -u ptzpad.service`.
 Turn any Raspberry Pi 3 B (or newer) into a headless VISCA-over-IP joystick server that lets an Xbox One / Series X|S controller drive one or many PTZOptics cameras.
 
 ## Repository structure
@@ -77,13 +86,7 @@ For example, when using a software I2C overlay on GPIO 23/24 configured as bus 3
 
 ## Customising after install
 
-- Change camera IPs/ports (persistent):
-
-```bash
-echo "PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54" | sudo tee /etc/default/ptzpad
-sudo systemctl daemon-reload
-sudo systemctl restart ptzpad
-```
+- Change camera names, models, IPs, ports, protocol, or tuning values in the dashboard. The bridge validates and hot-reloads `~/.config/ptzpad/config.json` without a restart.
 
 - Change camera IPs/ports (one-off):
 
@@ -128,9 +131,11 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 ## Uninstall
 
 ```bash
-sudo systemctl disable --now ptzpad
-sudo rm /etc/systemd/system/ptzpad.service
+sudo systemctl disable --now ptzpad-dashboard ptzpad
+sudo rm /etc/systemd/system/ptzpad-dashboard.service /etc/systemd/system/ptzpad.service
 sudo rm -f /etc/default/ptzpad
 sudo systemctl daemon-reload
-rm -f ~/ptzpad.py ~/oled_status.py
+rm -f ~/ptzpad.py ~/ptz_dashboard.py ~/ptz_config.py ~/oled_status.py
+# Optional: remove saved configuration and the dashboard token.
+rm -rf ~/.config/ptzpad
 ```

@@ -51,6 +51,9 @@ import pygame
 import signal
 import socket
 import time
+import json
+from pathlib import Path
+from ptz_config import load_config
 
 try:
     sys.stdout.reconfigure(line_buffering=True)
@@ -131,7 +134,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 status_display = OledStatus()
 status_display.boot("Parsing cameras...")
 
-CAMS = parse_cams(status_display)  # env override with proto:ip[:port]
+_cfg = load_config()
+CAMS = [(c["host"], c["protocol"], c["port"]) for c in _cfg["cameras"]]
 MAX_SPEED = 0x18                 # 0x01 (slow) ... 0x18 (fast)
 DEADZONE = 0.15                 # stick slack
 FOCUS_DEADZONE = 0.20           # left stick focus deadzone
@@ -147,6 +151,36 @@ DEBUG_INPUT_INTERVAL = 0.25     # seconds between debug samples
 # ---------------------------------------------------------------------------
 
 running = True
+cur = 0
+max_speed = MAX_SPEED
+deadzone = DEADZONE
+zoom_speed = MAX_ZOOM_SPEED
+js = None
+controller_connected = False
+_started = time.time()
+_state_path = Path(os.environ.get("PTZPAD_STATE", "/run/ptzpad/status.json"))
+_last_state_write = 0.0
+_camera_send = {}
+
+
+def publish_state(force=False):
+    global _last_state_write
+    now = time.time()
+    if not force and now - _last_state_write < 1:
+        return
+    payload = {"service": "running", "started": _started, "heartbeat": now,
+               "active_camera": cur, "controller": {"name": js.get_name() if js else "",
+               "connected": controller_connected, "wireless": bluetooth_linked},
+               "max_speed": max_speed, "deadzone": deadzone, "zoom_speed": zoom_speed,
+               "camera_send": _camera_send}
+    try:
+        _state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        tmp = _state_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload), encoding="utf-8")
+        os.replace(tmp, _state_path)
+        _last_state_write = now
+    except OSError:
+        pass
 bluetooth_linked = False
 
 
@@ -170,7 +204,7 @@ print(
 
 def wait_for_joystick() -> pygame.joystick.Joystick:
     """Block until a joystick is available, returning it."""
-    global bluetooth_linked
+    global bluetooth_linked, controller_connected, js
     status_display.joystick_wait()
 
     def reinit_joystick() -> None:
@@ -183,6 +217,7 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     attempts = 0
 
     while pygame.joystick.get_count() == 0 and running:
+        publish_state()
         attempts += 1
         print(">>> Waiting for joystick connection...")
         status_display.joystick_wait()
@@ -226,15 +261,16 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     name = js.get_name()
     print(">>> Joystick connected", name)
     status_display.joystick_connected(name)
+    controller_connected = True
     bt_name = name.lower()
     bluetooth_linked = "bluetooth" in bt_name or "wireless" in bt_name
     if bluetooth_linked:
         status_display.bluetooth_connected(name)
+    publish_state(force=True)
     return js
 
 
 js = wait_for_joystick()
-cur = 0                           # current CAM index
 max_speed = MAX_SPEED
 deadzone = DEADZONE
 zoom_speed = MAX_ZOOM_SPEED
@@ -246,6 +282,22 @@ status_display.camera_active(cur, CAMS[cur][0])
 status_display.boot("PTZ bridge ready")
 
 last_send_log = 0.0
+_cfg_mtime = 0.0
+
+
+def reload_config_if_changed():
+    global CAMS, cur, max_speed, deadzone, zoom_speed, _cfg_mtime
+    path = Path(os.environ.get("PTZPAD_CONFIG", "~/.config/ptzpad/config.json")).expanduser()
+    try: mtime = path.stat().st_mtime
+    except OSError: return
+    if mtime <= _cfg_mtime: return
+    _cfg_mtime = mtime
+    try: cfg = load_config()
+    except ValueError: return
+    new = [(c["host"], c["protocol"], c["port"]) for c in cfg["cameras"]]
+    if new != CAMS:
+        stop_all_motion(CAMS[cur]); CAMS = new; cur = min(cur, len(CAMS) - 1); status_display.camera_active(cur, CAMS[cur][0])
+    max_speed, deadzone, zoom_speed = cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]
 
 
 def send(pkt, cam, label: str | None = None):
@@ -275,9 +327,12 @@ def send(pkt, cam, label: str | None = None):
                 s.settimeout(0.3)
                 s.connect((ip, port))
                 s.sendall(pkt)
+        _camera_send.setdefault(cam[0], {})["last_success"] = time.time()
     except OSError as exc:
+        _camera_send.setdefault(cam[0], {})["last_error"] = time.time()
         print(f">> Socket error to {ip}:{port}: {exc}")
         status_display.error("Socket send failed")
+        publish_state(force=True)
 
 def visca_move(x, y, cam):
     """Drive pan/tilt according to joystick input."""
@@ -354,10 +409,14 @@ def switch_camera(new_index: int) -> int:
 
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
+    reload_config_if_changed()
+    publish_state()
     pygame.event.pump()
     status_display.refresh()
     if pygame.joystick.get_count() == 0:
         print(">>> Joystick disconnected")
+        controller_connected = False
+        publish_state(force=True)
         status_display.joystick_disconnected()
         if bluetooth_linked:
             status_display.bluetooth_disconnected()

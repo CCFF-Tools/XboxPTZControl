@@ -109,7 +109,17 @@ fi
 echo "[3/5] Installing ${TARGET_HOME}/ptzpad.py and oled_status.py …"
 install -m 755 "${SCRIPT_DIR}/ptzpad.py" "${TARGET_HOME}/ptzpad.py"
 install -m 644 "${SCRIPT_DIR}/oled_status.py" "${TARGET_HOME}/oled_status.py"
-chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/oled_status.py"
+install -m 755 "${SCRIPT_DIR}/ptz_dashboard.py" "${TARGET_HOME}/ptz_dashboard.py"
+install -m 644 "${SCRIPT_DIR}/ptz_config.py" "${TARGET_HOME}/ptz_config.py"
+chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/oled_status.py" "${TARGET_HOME}/ptz_dashboard.py" "${TARGET_HOME}/ptz_config.py"
+CONFIG_DIR="${TARGET_HOME}/.config/ptzpad"
+install -d -m 700 -o "${TARGET_USER}" -g "${TARGET_GROUP}" "${CONFIG_DIR}"
+if [[ ! -f "${CONFIG_DIR}/config.json" ]]; then
+    printf '{"cameras":[' > "${CONFIG_DIR}/config.json"
+    first=1; for cam in "${CAMS[@]}"; do proto="${cam%%:*}"; rest="${cam#*:}"; host="${rest%%:*}"; port="${rest#*:}"; [[ "${rest}" == "${host}" ]] && port=5678; [[ "${proto}" == udp ]] && [[ "${rest}" == "${host}" ]] && port=1259; [[ $first -eq 0 ]] && printf ',' >> "${CONFIG_DIR}/config.json"; first=0; printf '{"host":"%s","protocol":"%s","port":%s,"name":"%s","model":""}' "$host" "$proto" "$port" "$host" >> "${CONFIG_DIR}/config.json"; done
+    printf '],"max_speed":24,"deadzone":0.15,"zoom_speed":7}\n' >> "${CONFIG_DIR}/config.json"; chmod 600 "${CONFIG_DIR}/config.json"; chown "${TARGET_USER}:${TARGET_GROUP}" "${CONFIG_DIR}/config.json"
+fi
+if getent group systemd-journal >/dev/null 2>&1; then usermod -aG systemd-journal "${TARGET_USER}" || true; echo " • Added ${TARGET_USER} to systemd-journal (log out/in to apply)"; fi
 
 # 4. systemd unit -----------------------------------------------------------
 echo "[4/5] Creating systemd service…"
@@ -125,6 +135,8 @@ StartLimitIntervalSec=0
 
 [Service]
 User=${TARGET_USER}
+Environment=PTZPAD_CONFIG=${TARGET_HOME}/.config/ptzpad/config.json
+Environment=PTZPAD_STATE=/run/ptzpad/status.json
 Environment=SDL_JOYSTICK_HIDAPI=0
 Environment=SDL_VIDEODRIVER=dummy
 Environment=XDG_RUNTIME_DIR=/run/ptzpad
@@ -146,11 +158,32 @@ echo "[5/5] Enabling and starting service…"
 systemctl daemon-reload
 systemctl enable --now ptzpad.service
 
+cat > /etc/systemd/system/ptzpad-dashboard.service <<UNIT
+[Unit]
+Description=PTZPad LAN dashboard
+After=network-online.target ptzpad.service
+[Service]
+User=${TARGET_USER}
+Environment=PTZPAD_CONFIG=${TARGET_HOME}/.config/ptzpad/config.json
+Environment=PTZPAD_STATE=/run/ptzpad/status.json
+ExecStart=/usr/bin/python3 ${TARGET_HOME}/ptz_dashboard.py
+WorkingDirectory=${TARGET_HOME}
+Environment=PTZPAD_BIND=0.0.0.0
+Environment=PTZPAD_PORT=8080
+Restart=always
+RestartSec=2
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now ptzpad-dashboard.service
+
 echo "--------------------------------------------------------------------"
 echo "Done!  The service is active.  Default camera(s): ${CAMS[*]}"
 echo "• To check logs:  journalctl -u ptzpad.service -f"
 echo "• To edit camera IPs later: edit /etc/default/ptzpad and restart the service"
 echo "• Installed files: ${TARGET_HOME}/ptzpad.py and ${TARGET_HOME}/oled_status.py"
+echo "• Dashboard: http://<this-host>:8080/ (token stored in ${TARGET_HOME}/.config/ptzpad/token)"
 echo "• Reboot test:    sudo reboot"
 if [[ "${OLED_STATUS}" == "success" ]]; then
     echo "OLED setup: success (luma.oled + I2C ready)"
