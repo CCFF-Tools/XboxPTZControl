@@ -1,13 +1,37 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------
-#  xbox_ptzoptics_setup.sh  —  Zero-to-working in one shot
-#  Usage:  sudo bash xbox_ptzoptics_setup.sh
+#  install.sh — Xbox PTZOptics controller installer
+#  Usage: sudo bash install.sh
 # -----------------------------------------------------------
 set -euo pipefail
 
 # Determine the non-root user and home directory
-TARGET_USER="${SUDO_USER:-$(whoami)}"
-TARGET_HOME="$(eval echo ~"$TARGET_USER")"
+if [[ "$(id -u)" -ne 0 ]]; then
+    echo "error: run this installer as root (for example: sudo bash install.sh)" >&2
+    exit 1
+fi
+for required_cmd in apt-get systemctl getent id; do
+    if ! command -v "${required_cmd}" >/dev/null 2>&1; then
+        echo "error: required command not found: ${required_cmd}" >&2
+        exit 1
+    fi
+done
+
+TARGET_USER="${SUDO_USER:-$(logname 2>/dev/null || true)}"
+TARGET_USER="${TARGET_USER:-root}"
+if ! PASSWD_ENTRY="$(getent passwd "${TARGET_USER}")"; then
+    echo "error: could not resolve account ${TARGET_USER}" >&2
+    exit 1
+fi
+TARGET_HOME="$(printf '%s\n' "${PASSWD_ENTRY}" | cut -d: -f6)"
+if [[ -z "${TARGET_HOME}" || ! -d "${TARGET_HOME}" ]]; then
+    echo "error: could not resolve home directory for ${TARGET_USER}" >&2
+    exit 1
+fi
+if ! TARGET_GROUP="$(id -gn "${TARGET_USER}")"; then
+    echo "error: could not resolve primary group for ${TARGET_USER}" >&2
+    exit 1
+fi
 
 # Path to this script for referencing bundled files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,8 +71,7 @@ if command -v raspi-config >/dev/null 2>&1; then
         OLED_NOTES+=("raspi-config could not enable I2C")
     fi
 else
-    OLED_STATUS="issues"
-    OLED_NOTES+=("raspi-config not available; enable I2C manually")
+    echo " • raspi-config not available; enable I2C manually if using an OLED"
 fi
 
 if getent group i2c >/dev/null 2>&1; then
@@ -86,7 +109,7 @@ fi
 echo "[3/5] Installing ${TARGET_HOME}/ptzpad.py and oled_status.py …"
 install -m 755 "${SCRIPT_DIR}/ptzpad.py" "${TARGET_HOME}/ptzpad.py"
 install -m 644 "${SCRIPT_DIR}/oled_status.py" "${TARGET_HOME}/oled_status.py"
-chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/oled_status.py"
+chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/oled_status.py"
 
 # 4. systemd unit -----------------------------------------------------------
 echo "[4/5] Creating systemd service…"
@@ -126,7 +149,8 @@ systemctl enable --now ptzpad.service
 echo "--------------------------------------------------------------------"
 echo "Done!  The service is active.  Default camera(s): ${CAMS[*]}"
 echo "• To check logs:  journalctl -u ptzpad.service -f"
-echo "• To edit camera IPs later:  update /etc/default/ptzpad and restart the service (or edit ${TARGET_HOME}/ptzpad.py)"
+echo "• To edit camera IPs later: edit /etc/default/ptzpad and restart the service"
+echo "• Installed files: ${TARGET_HOME}/ptzpad.py and ${TARGET_HOME}/oled_status.py"
 echo "• Reboot test:    sudo reboot"
 if [[ "${OLED_STATUS}" == "success" ]]; then
     echo "OLED setup: success (luma.oled + I2C ready)"

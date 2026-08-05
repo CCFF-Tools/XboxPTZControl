@@ -43,8 +43,6 @@ class OledStatus:
         self._last_update = 0.0
         self._failed_once = False
         self._available = False
-        self._override_lines = ["Out of Service", "Try again later"]  # Temporary static message
-
         if not all([canvas, i2c, ssd1306, ImageFont]):
             self._display = _NullDisplay()
             if not self._failed_once:
@@ -122,9 +120,7 @@ class OledStatus:
         if not self.available:
             return
 
-        _ = lines  # Ignored while override message is active
-        override_lines = self._override_lines
-        normalized = [line[:21] for line in override_lines]  # 21 chars fits default font
+        normalized = [str(line)[:21] for line in lines]  # 21 chars fits default font
         now = time.time()
         if not force:
             if normalized == self._last_lines:
@@ -153,9 +149,14 @@ class OledStatus:
             draw.rectangle(self._device.bounding_box, outline=0, fill=0)
 
             y = padding
+            if hasattr(self._font, "getbbox"):
+                bbox = self._font.getbbox("Ag")
+                line_height = max(1, bbox[3] - bbox[1])
+            else:
+                line_height = max(1, self._font.getsize("Ag")[1])
             for line in lines:
                 draw.text((0, y), line, font=self._font, fill=255)
-                y += self._font.getsize(line)[1] + 2
+                y += line_height + 2
 
         # Explicitly flush the buffer to the panel to mirror the working
         # standalone test sequence and avoid stale images on some adapters.

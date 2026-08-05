@@ -10,7 +10,7 @@ The main deliverable is a single installation script (`install.sh`) that:
 - Writes the `ptzpad.py` controller bridge to the invoking user's home directory
 - Creates and enables a `ptzpad.service` so the bridge starts on boot
 
-The Python driver is embedded within the script. It reads camera IP/port from environment variables, polls the controller with `pygame`, and sends VISCA-over-IP commands over TCP or UDP.
+The installer copies `ptzpad.py` and `oled_status.py` into the invoking user's home directory. The driver reads camera IP/port from environment variables, polls the controller with `pygame`, and sends VISCA-over-IP commands over TCP or UDP.
 
 ## Quick start
 
@@ -20,13 +20,13 @@ cd XboxPTZControl
 sudo bash install.sh            # edit CAMS array at top if needed
 ```
 
-Camera addresses can be changed by editing the `CAMS` array at the top of `install.sh` or by exporting the `PTZ_CAMS` environment variable before running the service, for example:
+Camera addresses can be changed by editing the `CAMS` array at the top of `install.sh` or by exporting `PTZ_CAMS` when launching `ptzpad.py` directly, for example:
 
 ```bash
-export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
+PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54 python3 ~/ptzpad.py
 ```
 
-The installer seeds `/etc/default/ptzpad` with the current `CAMS` values, and the service reads `PTZ_CAMS` from that file on startup. Update that file any time you want to persist new camera addresses.
+The installer seeds `/etc/default/ptzpad` with the current `CAMS` values, and the systemd service (running as the invoking non-root user) reads `PTZ_CAMS` from that environment file on startup. A shell `export` affects only commands launched from that shell; edit `/etc/default/ptzpad` to persist service settings.
 
 Hardware you need:
 
@@ -45,7 +45,7 @@ The OLED is optional. When present and reachable at I2C address `0x3C`, it shows
   - SDA → GPIO 2 (pin 3)
   - SCL → GPIO 3 (pin 5)
   - Keep the display on the 3.3 V rail; most SSD1306 breakout boards default to I2C address `0x3C`.
-- **Packages and configuration:** `install.sh` installs `python3-pil`, `i2c-tools`, and `luma.oled` (via pip) and enables I2C via `raspi-config`. If you are setting up manually, install those packages and ensure your user is in the `i2c` group.
+- **Packages and configuration:** `install.sh` installs `python3-pil`, `i2c-tools`, and `luma.oled` (via pip), and attempts to enable I2C via `raspi-config` when that Raspberry Pi utility is available. If you are setting up manually, install those packages and ensure the service user is in the `i2c` group.
 - **What you should see:**
   - Boot: “Parsing cameras…”, “Starting pygame…”, and “Waiting for joystick…” as setup progresses.
   - Runtime: “Joystick connected” with the controller name, “Bluetooth linked” (for wireless controllers), the active camera number/IP, and “PTZ bridge ready”.
@@ -92,7 +92,7 @@ export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
 # format: proto:ip[:port] (defaults 5678 TCP, 1259 UDP)
 ```
 
-- Adjust speed / dead-zone / zoom speed / zoom dead-zone: use the D-pad or RB/LB bumpers, or edit `MAX_SPEED`, `DEADZONE`, `MAX_ZOOM_SPEED` and `ZOOM_DEADZONE` in `~/ptzpad.py`.
+- Adjust speed / dead-zone / zoom speed / zoom dead-zone: use the D-pad or RB/LB bumpers, or edit `MAX_SPEED`, `DEADZONE`, `MAX_ZOOM_SPEED`, `ZOOM_START_DEADZONE` and `ZOOM_STOP_DEADZONE` in `~/ptzpad.py`.
 
 ## Service management
 
@@ -110,14 +110,14 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 | Symptom | Fix |
 |---------|-----|
 | Service prints `Waiting for joystick connection…` | Check USB cable/port; `lsusb` should list the Xbox controller. |
-| Controller works with `jstest` but OLED stays on “Waiting for joystick” | Ensure the `ptzpad` user is in the `input` group so it can open `/dev/input/js*`, then restart the service or replug the controller. The service now forces the headless SDL “dummy” video driver and will automatically retry with `SDL_JOYSTICK_HIDAPI=1` if evdev devices (e.g., `/dev/input/js0`) exist but pygame still reports zero joysticks. |
+| Controller works with `jstest` but OLED stays on “Waiting for joystick” | Ensure the service user (the account that ran `sudo`) is in the `input` group so it can open `/dev/input/js*`, then restart the service or replug the controller. The service now forces the headless SDL “dummy” video driver and will automatically retry with `SDL_JOYSTICK_HIDAPI=1` if evdev devices (e.g., `/dev/input/js0`) exist but pygame still reports zero joysticks. |
 | `/dev/input/js0` exists but still waiting for joystick | Logs now show whether `/dev/input/js*` are readable (or why they fail to open). If you see “Joystick open failed”, fix permissions/udev and restart. To stream joystick input samples and throttled VISCA sends, set `PTZPAD_DEBUG_INPUT=1` in the service environment (e.g., add `PTZPAD_DEBUG_INPUT=1` to `/etc/default/ptzpad`, `sudo systemctl daemon-reload`, and `sudo systemctl restart ptzpad`). |
-| Journal shows `XDG_RUNTIME_DIR is invalid or not set` | Install via `install.sh` or set `XDG_RUNTIME_DIR=/run/ptzpad`, `RuntimeDirectory=ptzpad`, and `RuntimeDirectoryMode=0700` in the service so SDL/pygame have a writable runtime directory. The script sets the env var before importing pygame and creates `/run/ptzpad` with mode 0700 at startup if the env var is missing. |
-| OLED stays blank or shows garbled text | Confirm the display answers at `0x3C` with `i2cdetect -y 1`, and recheck SDA (GPIO 2) / SCL (GPIO 3) wiring, 3.3 V power, and ground. |
+| Journal shows `XDG_RUNTIME_DIR is invalid or not set` | Install via `install.sh` or set `XDG_RUNTIME_DIR=/run/ptzpad`, `RuntimeDirectory=ptzpad`, and `RuntimeDirectoryMode=0700` in the service so SDL/pygame have a writable runtime directory. At startup the script creates the configured directory; if that path is unavailable, it falls back to a private directory under the system temporary directory. |
+| OLED stays blank or shows garbled text | Confirm the display answers at `0x3C` on the configured bus (default `i2cdetect -y 3`), and recheck SDA (GPIO 2) / SCL (GPIO 3) wiring, 3.3 V power, and ground. |
 | `Connection refused` | Wrong port or VISCA-TCP disabled in camera web UI. |
 | Jerky / slow moves | Keep ≥40 ms between VISCA packets (`LOOP_MS`), use wired LAN. |
 | Zoom jitter or stops while holding trigger | Tweak `ZOOM_START_DEADZONE`/`ZOOM_STOP_DEADZONE` to filter trigger noise and adjust `ZOOM_REPEAT_MS` for repeat rate. Zoom continues until the trigger rests inside the stop deadzone for a few loops. |
-| Lag after 30 s idle | Some cameras drop idle TCP; the script sends periodic keep-alives – ensure they aren’t blocked by a firewall. |
+| Lag after 30 s idle | Some cameras drop idle TCP; check the camera's network timeout and use wired LAN where possible. |
 
 ## Where to go next
 
@@ -130,6 +130,7 @@ The bridge handles `SIGTERM`/`SIGINT`, allowing `systemctl stop ptzpad` or `Ctrl
 ```bash
 sudo systemctl disable --now ptzpad
 sudo rm /etc/systemd/system/ptzpad.service
+sudo rm -f /etc/default/ptzpad
+sudo systemctl daemon-reload
+rm -f ~/ptzpad.py ~/oled_status.py
 ```
-
-Delete `~/ptzpad.py` if it's no longer needed.

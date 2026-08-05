@@ -2,6 +2,7 @@
 # Xbox-One → PTZOptics VISCA-over-IP bridge
 import os
 import sys
+import tempfile
 
 # Force SDL to use the headless video driver to avoid XDG runtime complaints on
 # systems without a graphical session (e.g., the service unit).
@@ -11,17 +12,36 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 def ensure_runtime_dir() -> str:
     """Guarantee SDL has a writable runtime directory before importing pygame."""
 
-    xdg_dir = os.environ.get("XDG_RUNTIME_DIR") or "/run/ptzpad"
-    os.environ["XDG_RUNTIME_DIR"] = xdg_dir
+    configured = os.environ.get("XDG_RUNTIME_DIR") or "/run/ptzpad"
     try:
-        os.makedirs(xdg_dir, mode=0o700, exist_ok=True)
-        os.chmod(xdg_dir, 0o700)
-    except OSError as exc:
+        candidates = [configured]
+        for candidate in candidates:
+            try:
+                os.makedirs(candidate, mode=0o700, exist_ok=True)
+                os.chmod(candidate, 0o700)
+                if os.access(candidate, os.W_OK):
+                    os.environ["XDG_RUNTIME_DIR"] = candidate
+                    return candidate
+            except OSError as exc:
+                print(
+                    f"warning: could not prepare XDG_RUNTIME_DIR {candidate}: {exc}",
+                    file=sys.stderr,
+                )
+        fallback = tempfile.mkdtemp(prefix="ptzpad-")
+        os.environ["XDG_RUNTIME_DIR"] = fallback
         print(
-            f"error: could not prepare XDG_RUNTIME_DIR {xdg_dir}: {exc}",
+            f"warning: using private temporary XDG_RUNTIME_DIR {fallback}",
             file=sys.stderr,
         )
-    return xdg_dir
+        return fallback
+    except OSError as exc:
+        print(
+            f"warning: could not create temporary XDG_RUNTIME_DIR: {exc}",
+            file=sys.stderr,
+        )
+    # Keep startup alive even on unusual read-only systems; SDL may still work.
+    os.environ["XDG_RUNTIME_DIR"] = configured
+    return configured
 
 
 ensure_runtime_dir()
@@ -30,7 +50,6 @@ import logging
 import pygame
 import signal
 import socket
-import sys
 import time
 
 try:
@@ -58,11 +77,41 @@ def parse_cams(status: OledStatus | None = None) -> list[tuple[str, str, int]]:
         if parts[0].lower() in ("tcp", "udp"):
             proto = parts[0].lower()
             parts = parts[1:]
-        ip = parts[0]
+        if not parts:
+            msg = f"Invalid host in PTZ_CAMS entry: {entry}"
+            print(msg)
+            if status:
+                status.error("Bad PTZ_CAMS host")
+            continue
+        ip = parts[0].strip()
+        if not ip:
+            msg = f"Invalid host in PTZ_CAMS entry: {entry}"
+            print(msg)
+            if status:
+                status.error("Bad PTZ_CAMS host")
+            continue
+        if len(parts) > 2:
+            msg = f"Invalid PTZ_CAMS entry: {entry}"
+            print(msg)
+            if status:
+                status.error("Bad PTZ_CAMS format")
+            continue
+        if len(parts) > 1 and not parts[1].strip():
+            msg = f"Invalid port in PTZ_CAMS entry: {entry}"
+            print(msg)
+            if status:
+                status.error("Bad PTZ_CAMS port")
+            continue
         if len(parts) > 1 and parts[1]:
             try:
                 port = int(parts[1])
             except ValueError:
+                msg = f"Invalid port in PTZ_CAMS entry: {entry}"
+                print(msg)
+                if status:
+                    status.error("Bad PTZ_CAMS port")
+                continue
+            if not 1 <= port <= 65535:
                 msg = f"Invalid port in PTZ_CAMS entry: {entry}"
                 print(msg)
                 if status:
@@ -196,23 +245,21 @@ last_input_log = 0.0
 status_display.camera_active(cur, CAMS[cur][0])
 status_display.boot("PTZ bridge ready")
 
-last_visca_log = 0.0
-# Legacy name used by earlier debug-logging patch; keep in sync to avoid
-# UnboundLocalError when a stale variable name is referenced.
 last_send_log = 0.0
 
 
 def send(pkt, cam, label: str | None = None):
     """Send VISCA packet and optionally log the action when debugging."""
 
-    global last_visca_log, last_send_log
+    global last_send_log
     ip, proto, port = cam
     if DEBUG_INPUT:
         now = time.time()
         if now - last_send_log >= DEBUG_INPUT_INTERVAL:
+            label_safe = label or "command"
             print(
                 ">>> SEND",
-                (action or "command").upper(),
+                label_safe.upper(),
                 f"to {ip}:{port} ({proto})",
                 f"len={len(pkt)}",
                 "bytes:",
@@ -231,18 +278,6 @@ def send(pkt, cam, label: str | None = None):
     except OSError as exc:
         print(f">> Socket error to {ip}:{port}: {exc}")
         status_display.error("Socket send failed")
-    else:
-        if DEBUG_INPUT:
-            now = time.time()
-            if now - last_visca_log >= DEBUG_INPUT_INTERVAL:
-                hex_pkt = " ".join(f"{b:02X}" for b in pkt)
-                label_safe = label or "command"
-                label_txt = f" {label_safe}" if label_safe else ""
-                print(
-                    f">>> VISCA{label_txt} -> {proto}:{ip}:{port} len={len(pkt)} pkt=[{hex_pkt}]"
-                )
-                last_visca_log = now
-                last_send_log = now
 
 def visca_move(x, y, cam):
     """Drive pan/tilt according to joystick input."""
@@ -299,6 +334,24 @@ def focus(direction, cam):         # direction: 1 far, -1 near, 0 stop
 def autofocus(cam):
     send(b"\x81\x01\x04\x18\x01\xFF", cam, "autofocus")
 
+
+def stop_all_motion(cam):
+    """Stop pan/tilt, zoom, and focus on a camera."""
+    visca_stop(cam)
+    zoom(0, cam)
+    focus(0, cam)
+
+
+def switch_camera(new_index: int) -> int:
+    """Stop all motion on the current camera before selecting another."""
+    global last_zoom_dir, zoom_stop_count, last_zoom_sent
+    old_cam = CAMS[cur]
+    stop_all_motion(old_cam)
+    last_zoom_dir = 0
+    zoom_stop_count = 0
+    last_zoom_sent = 0.0
+    return new_index
+
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
     pygame.event.pump()
@@ -309,13 +362,13 @@ while running:
         if bluetooth_linked:
             status_display.bluetooth_disconnected()
             bluetooth_linked = False
-        visca_stop(CAMS[cur])
+        stop_all_motion(CAMS[cur])
         js = wait_for_joystick()
         status_display.camera_active(cur, CAMS[cur][0])
         continue
     # camera cycling – A button (#0)
     if js.get_button(0):
-        cur = (cur + 1) % len(CAMS)
+        cur = switch_camera((cur + 1) % len(CAMS))
         time.sleep(0.25)          # debounce
         print(">> Control switched to CAM", cur + 1, CAMS[cur][0])
         status_display.camera_active(cur, CAMS[cur][0])
@@ -431,4 +484,6 @@ while running:
 
     time.sleep(LOOP_MS / 1000)
 
+if CAMS and "cur" in globals():
+    stop_all_motion(CAMS[cur])
 pygame.quit()
