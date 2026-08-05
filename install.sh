@@ -106,12 +106,13 @@ else
 fi
 
 # 3. Python joystick driver -------------------------------------------------
-echo "[3/5] Installing ${TARGET_HOME}/ptzpad.py and oled_status.py …"
+echo "[3/5] Installing ${TARGET_HOME}/ptzpad.py and dependencies …"
 install -m 755 "${SCRIPT_DIR}/ptzpad.py" "${TARGET_HOME}/ptzpad.py"
+install -m 644 "${SCRIPT_DIR}/zoom_control.py" "${TARGET_HOME}/zoom_control.py"
 install -m 644 "${SCRIPT_DIR}/oled_status.py" "${TARGET_HOME}/oled_status.py"
 install -m 755 "${SCRIPT_DIR}/ptz_dashboard.py" "${TARGET_HOME}/ptz_dashboard.py"
 install -m 644 "${SCRIPT_DIR}/ptz_config.py" "${TARGET_HOME}/ptz_config.py"
-chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/oled_status.py" "${TARGET_HOME}/ptz_dashboard.py" "${TARGET_HOME}/ptz_config.py"
+chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/zoom_control.py" "${TARGET_HOME}/oled_status.py" "${TARGET_HOME}/ptz_dashboard.py" "${TARGET_HOME}/ptz_config.py"
 CONFIG_DIR="${TARGET_HOME}/.config/ptzpad"
 install -d -m 700 -o "${TARGET_USER}" -g "${TARGET_GROUP}" "${CONFIG_DIR}"
 if [[ ! -f "${CONFIG_DIR}/config.json" ]]; then
@@ -182,7 +183,7 @@ echo "--------------------------------------------------------------------"
 echo "Done!  The service is active.  Default camera(s): ${CAMS[*]}"
 echo "• To check logs:  journalctl -u ptzpad.service -f"
 echo "• To edit camera IPs later: edit /etc/default/ptzpad and restart the service"
-echo "• Installed files: ${TARGET_HOME}/ptzpad.py and ${TARGET_HOME}/oled_status.py"
+echo "• Installed files: ${TARGET_HOME}/ptzpad.py, ${TARGET_HOME}/zoom_control.py, and ${TARGET_HOME}/oled_status.py"
 echo "• Dashboard: http://<this-host>:8080/ (token stored in ${TARGET_HOME}/.config/ptzpad/token)"
 echo "• Reboot test:    sudo reboot"
 if [[ "${OLED_STATUS}" == "success" ]]; then

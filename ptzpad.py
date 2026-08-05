@@ -54,6 +54,7 @@ import time
 import json
 from pathlib import Path
 from ptz_config import load_config
+from zoom_control import ZoomCommandState, next_zoom_command
 
 try:
     sys.stdout.reconfigure(line_buffering=True)
@@ -142,7 +143,8 @@ FOCUS_DEADZONE = 0.20           # left stick focus deadzone
 MAX_ZOOM_SPEED = 0x07           # 0x00 (slow) ... 0x07 (fast)
 ZOOM_START_DEADZONE = 0.10      # trigger slack for zoom start
 ZOOM_STOP_DEADZONE = 0.05       # smaller slack to stop zoom
-ZOOM_REPEAT_MS = 200            # repeat zoom command every N ms
+ZOOM_REPEAT_MS = 200            # TCP repeat interval while trigger is held
+UDP_STOP_PACKETS = 3             # total stop packets sent for UDP reliability
 ZOOM_STOP_LOOPS = 3             # require this many loops below stop threshold
 LOOP_MS = 50                    # command period (ms)
 DEBUG_INPUT_RAW = os.environ.get("PTZPAD_DEBUG_INPUT", "")
@@ -274,9 +276,8 @@ js = wait_for_joystick()
 max_speed = MAX_SPEED
 deadzone = DEADZONE
 zoom_speed = MAX_ZOOM_SPEED
-last_zoom_dir = 0              # last zoom command sent
+zoom_state = ZoomCommandState()
 zoom_stop_count = 0            # loops below stop threshold
-last_zoom_sent = 0.0           # ms timestamp of last zoom command
 last_input_log = 0.0
 status_display.camera_active(cur, CAMS[cur][0])
 status_display.boot("PTZ bridge ready")
@@ -296,7 +297,7 @@ def reload_config_if_changed():
     except ValueError: return
     new = [(c["host"], c["protocol"], c["port"]) for c in cfg["cameras"]]
     if new != CAMS:
-        stop_all_motion(CAMS[cur]); CAMS = new; cur = min(cur, len(CAMS) - 1); status_display.camera_active(cur, CAMS[cur][0])
+        stop_all_motion(CAMS[cur]); CAMS = new; cur = min(cur, len(CAMS) - 1); zoom_state.reset(); status_display.camera_active(cur, CAMS[cur][0])
     max_speed, deadzone, zoom_speed = cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]
 
 
@@ -391,20 +392,23 @@ def autofocus(cam):
 
 
 def stop_all_motion(cam):
-    """Stop pan/tilt, zoom, and focus on a camera."""
+    """Stop pan/tilt, zoom, and focus, retrying UDP zoom stops briefly."""
     visca_stop(cam)
-    zoom(0, cam)
+    stop_packets = UDP_STOP_PACKETS if cam[1].lower() == "udp" else 1
+    for packet_index in range(stop_packets):
+        zoom(0, cam)
+        if packet_index + 1 < stop_packets:
+            time.sleep(LOOP_MS / 1000)
     focus(0, cam)
 
 
 def switch_camera(new_index: int) -> int:
     """Stop all motion on the current camera before selecting another."""
-    global last_zoom_dir, zoom_stop_count, last_zoom_sent
+    global zoom_stop_count
     old_cam = CAMS[cur]
     stop_all_motion(old_cam)
-    last_zoom_dir = 0
+    zoom_state.reset()
     zoom_stop_count = 0
-    last_zoom_sent = 0.0
     return new_index
 
 
@@ -446,6 +450,8 @@ while running:
             status_display.bluetooth_disconnected()
             bluetooth_linked = False
         stop_all_motion(CAMS[cur])
+        zoom_state.reset()
+        zoom_stop_count = 0
         js = wait_for_joystick()
         status_display.camera_active(cur, CAMS[cur][0])
         continue
@@ -519,21 +525,22 @@ while running:
         if zoom_stop_count >= ZOOM_STOP_LOOPS:
             zoom_dir = 0
         else:
-            zoom_dir = last_zoom_dir
+            zoom_dir = zoom_state.last_direction
     else:
-        zoom_dir = last_zoom_dir
+        zoom_dir = zoom_state.last_direction
         zoom_stop_count = 0
 
     now_ms = time.time() * 1000
-    send_cmd = False
-    if zoom_dir != last_zoom_dir:
-        send_cmd = True
-    elif zoom_dir != 0 and now_ms - last_zoom_sent >= ZOOM_REPEAT_MS:
-        send_cmd = True
-    if send_cmd:
-        zoom(zoom_dir, cam)
-        last_zoom_sent = now_ms
-    last_zoom_dir = zoom_dir
+    zoom_cmd = next_zoom_command(
+        zoom_dir,
+        cam[1],
+        now_ms,
+        zoom_state,
+        repeat_ms=ZOOM_REPEAT_MS,
+        udp_stop_packets=UDP_STOP_PACKETS,
+    )
+    if zoom_cmd is not None:
+        zoom(zoom_cmd, cam)
 
     if DEBUG_INPUT:
         now = time.time()
@@ -557,7 +564,7 @@ while running:
                 "zoom_dir=",
                 zoom_dir,
                 "last_zoom_dir=",
-                last_zoom_dir,
+                zoom_state.last_direction,
                 "max_speed=",
                 max_speed,
                 "deadzone=",
