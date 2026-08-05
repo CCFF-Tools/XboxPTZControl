@@ -118,6 +118,9 @@ class DashboardHelperTests(unittest.TestCase):
         self.assertIn("deckBrightness", ptz_dashboard.HTML)
         self.assertIn("deckEnabled", ptz_dashboard.HTML)
         self.assertIn("last_render_at", ptz_dashboard.HTML)
+        self.assertIn("editGeneration", ptz_dashboard.HTML)
+        self.assertIn("markDirty", ptz_dashboard.HTML)
+        self.assertIn("generation===editGeneration", ptz_dashboard.HTML)
 
 
 if __name__ == "__main__":

@@ -238,8 +238,7 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     attempts = 0
 
     while pygame.joystick.get_count() == 0 and running:
-        if "reload_config_if_changed" in globals():
-            reload_config_if_changed()
+        reload_config_if_changed()
         if _streamdeck:
             process_streamdeck_actions()
         publish_state()

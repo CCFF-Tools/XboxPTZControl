@@ -181,7 +181,8 @@ UNIT
 # 5. Enable + start ---------------------------------------------------------
 echo "[5/5] Enabling and starting service…"
 systemctl daemon-reload
-systemctl enable --now ptzpad.service
+systemctl enable ptzpad.service
+systemctl restart ptzpad.service
 
 cat > /etc/systemd/system/ptzpad-dashboard.service <<UNIT
 [Unit]
@@ -201,7 +202,8 @@ RestartSec=2
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now ptzpad-dashboard.service
+systemctl enable ptzpad-dashboard.service
+systemctl restart ptzpad-dashboard.service
 
 echo "--------------------------------------------------------------------"
 echo "Done!  The service is active.  Default camera(s): ${CAMS[*]}"
