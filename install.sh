@@ -44,7 +44,7 @@ CAMS=("tcp:192.168.1.150")    # proto:ip[:port], e.g., udp:192.168.1.151:1259
 # 1. Packages ---------------------------------------------------------------
 echo "[1/5] Updating APT and installing packages…"
 apt-get update -y
-DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-pygame python3-pil i2c-tools
+DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-pygame python3-pil i2c-tools libhidapi-libusb0
 
 # 2. OLED + I2C setup -------------------------------------------------------
 echo "[2/5] Configuring OLED dependencies and I2C…"
@@ -61,6 +61,17 @@ else
         OLED_STATUS="issues"
         OLED_NOTES+=("pip install luma.oled failed")
     fi
+fi
+
+# Stream Deck support is optional and must not block bridge installation.
+STREAMDECK_STATUS="success"
+if pip3 show streamdeck >/dev/null 2>&1; then
+    echo " • streamdeck Python package already present"
+elif pip3 install streamdeck; then
+    echo " • Installed streamdeck Python package via pip"
+else
+    STREAMDECK_STATUS="issues"
+    echo " • WARNING: Stream Deck package install failed; bridge will run without it"
 fi
 
 if command -v raspi-config >/dev/null 2>&1; then
@@ -111,9 +122,21 @@ install -m 755 "${SCRIPT_DIR}/ptzpad.py" "${TARGET_HOME}/ptzpad.py"
 install -m 644 "${SCRIPT_DIR}/zoom_control.py" "${TARGET_HOME}/zoom_control.py"
 install -m 644 "${SCRIPT_DIR}/input_control.py" "${TARGET_HOME}/input_control.py"
 install -m 644 "${SCRIPT_DIR}/oled_status.py" "${TARGET_HOME}/oled_status.py"
+install -m 644 "${SCRIPT_DIR}/streamdeck_control.py" "${TARGET_HOME}/streamdeck_control.py"
 install -m 755 "${SCRIPT_DIR}/ptz_dashboard.py" "${TARGET_HOME}/ptz_dashboard.py"
 install -m 644 "${SCRIPT_DIR}/ptz_config.py" "${TARGET_HOME}/ptz_config.py"
-chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/zoom_control.py" "${TARGET_HOME}/input_control.py" "${TARGET_HOME}/oled_status.py" "${TARGET_HOME}/ptz_dashboard.py" "${TARGET_HOME}/ptz_config.py"
+chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/zoom_control.py" "${TARGET_HOME}/input_control.py" "${TARGET_HOME}/oled_status.py" "${TARGET_HOME}/streamdeck_control.py" "${TARGET_HOME}/ptz_dashboard.py" "${TARGET_HOME}/ptz_config.py"
+
+if getent group input >/dev/null 2>&1; then
+    printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0fd9", MODE="0660", GROUP="input"\n' > /etc/udev/rules.d/99-ptzpad-streamdeck.rules
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules || true
+        udevadm trigger --subsystem-match=usb --attr-match=idVendor=0fd9 || true
+    fi
+    echo " • Installed Stream Deck udev rule (/etc/udev/rules.d/99-ptzpad-streamdeck.rules)"
+else
+    echo " • WARNING: input group missing; Stream Deck permissions may be blocked"
+fi
 CONFIG_DIR="${TARGET_HOME}/.config/ptzpad"
 install -d -m 700 -o "${TARGET_USER}" -g "${TARGET_GROUP}" "${CONFIG_DIR}"
 if [[ ! -f "${CONFIG_DIR}/config.json" ]]; then
@@ -184,7 +207,7 @@ echo "--------------------------------------------------------------------"
 echo "Done!  The service is active.  Default camera(s): ${CAMS[*]}"
 echo "• To check logs:  journalctl -u ptzpad.service -f"
 echo "• To edit camera IPs later: edit /etc/default/ptzpad and restart the service"
-echo "• Installed files: ${TARGET_HOME}/ptzpad.py, ${TARGET_HOME}/zoom_control.py, ${TARGET_HOME}/input_control.py, and ${TARGET_HOME}/oled_status.py"
+echo "• Installed files: ${TARGET_HOME}/ptzpad.py, ${TARGET_HOME}/streamdeck_control.py, ${TARGET_HOME}/zoom_control.py, ${TARGET_HOME}/input_control.py, and ${TARGET_HOME}/oled_status.py"
 echo "• Dashboard: http://<this-host>:8080/ (token stored in ${TARGET_HOME}/.config/ptzpad/token)"
 echo "• Reboot test:    sudo reboot"
 if [[ "${OLED_STATUS}" == "success" ]]; then
@@ -192,4 +215,9 @@ if [[ "${OLED_STATUS}" == "success" ]]; then
 else
     echo "OLED setup: issues encountered"
     printf ' - %s\n' "${OLED_NOTES[@]}"
+fi
+if [[ "${STREAMDECK_STATUS}" == "success" ]]; then
+    echo "Stream Deck setup: success (streamdeck Python package + libhidapi-libusb0)"
+else
+    echo "Stream Deck setup: optional package unavailable; bridge remains functional without a deck"
 fi

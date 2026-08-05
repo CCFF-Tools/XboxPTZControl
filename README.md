@@ -49,6 +49,22 @@ Hardware you need:
 - Xbox One / Series X|S controller (wired USB recommended)
 - PTZOptics camera(s) with VISCA-over-IP enabled (default TCP 5678)
 - Optional: 128×64 SSD1306 I2C OLED (for live status: boot, joystick/Bluetooth link, active camera, errors)
+- Optional: Elgato Stream Deck with at least four visual keys (USB)
+
+## Stream Deck controls (optional)
+
+The installer adds the `streamdeck` Python package, `libhidapi-libusb0`, and a scoped udev rule for Elgato's vendor ID (`0fd9`) granting the existing `input` group access. If the Python package cannot be downloaded, the bridge still starts and logs that Stream Deck support is unavailable. Replug the deck after installation (or reload udev rules) and ensure the service user is in `input`.
+
+The first detected visual deck is used. Target a model with at least four keys (such as Stream Deck Mini, standard, or XL); three keys are reserved for camera/save controls and the remainder hold presets. Three-key Pedal devices have no preset key or useful display and are not a supported target. The default layout adapts to key count:
+
+| Keys | Action |
+|---|---|
+| 0 | Previous camera |
+| 1 | Next camera |
+| 2 | Toggle **Save** mode (highlighted while armed) |
+| 3 onward | Presets 1, 2, 3… (normal press recalls; Save armed stores then disarms) |
+
+The display shows the selected camera index/name and armed state. Presets use VISCA memory commands and are stored in the camera itself; available slot count and behavior are camera/model dependent. Troubleshoot with `journalctl -u ptzpad -f`, `lsusb`, and `id -nG` (the latter must include `input`).
 
 ## OLED status display
 
@@ -146,7 +162,8 @@ sudo systemctl disable --now ptzpad-dashboard ptzpad
 sudo rm /etc/systemd/system/ptzpad-dashboard.service /etc/systemd/system/ptzpad.service
 sudo rm -f /etc/default/ptzpad
 sudo systemctl daemon-reload
-rm -f ~/ptzpad.py ~/zoom_control.py ~/input_control.py ~/ptz_dashboard.py ~/ptz_config.py ~/oled_status.py
+rm -f ~/ptzpad.py ~/streamdeck_control.py ~/zoom_control.py ~/input_control.py ~/ptz_dashboard.py ~/ptz_config.py ~/oled_status.py
+sudo rm -f /etc/udev/rules.d/99-ptzpad-streamdeck.rules
 # Optional: remove saved configuration and the dashboard token.
 rm -rf ~/.config/ptzpad
 ```

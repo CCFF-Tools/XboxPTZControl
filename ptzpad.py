@@ -52,6 +52,7 @@ import signal
 import socket
 import time
 import json
+import queue
 from pathlib import Path
 from ptz_config import load_config
 from zoom_control import ZoomCommandState, next_zoom_command
@@ -69,6 +70,12 @@ except Exception:
     pass
 
 from oled_status import OledStatus
+from streamdeck_control import (
+    ActionKind,
+    DeckAction,
+    StreamDeckController,
+    resolve_deck_action,
+)
 
 # ---- CONFIG ---------------------------------------------------------------
 def parse_cams(status: OledStatus | None = None) -> list[tuple[str, str, int]]:
@@ -144,6 +151,7 @@ status_display.boot("Parsing cameras...")
 
 _cfg = load_config()
 CAMS = [(c["host"], c["protocol"], c["port"]) for c in _cfg["cameras"]]
+CAMERA_NAMES = [c.get("name") or c["host"] for c in _cfg["cameras"]]
 MAX_SPEED = 0x18                 # 0x01 (slow) ... 0x18 (fast)
 DEADZONE = 0.15                 # stick slack
 FOCUS_DEADZONE = 0.20           # left stick focus deadzone
@@ -170,6 +178,9 @@ _state_path = Path(os.environ.get("PTZPAD_STATE", "/run/ptzpad/status.json"))
 _last_state_write = 0.0
 _camera_send = {}
 _input_telemetry = {"lt": None, "rt": None, "zoom_value": None, "zoom_direction": 0, "protocol": None}
+_deck_actions = queue.Queue()
+_streamdeck = None
+_preset_save_armed = False
 
 
 def publish_state(force=False):
@@ -296,7 +307,7 @@ _cfg_mtime = 0.0
 
 
 def reload_config_if_changed():
-    global CAMS, cur, max_speed, deadzone, zoom_speed, _cfg_mtime
+    global CAMS, CAMERA_NAMES, cur, max_speed, deadzone, zoom_speed, _cfg_mtime
     path = Path(os.environ.get("PTZPAD_CONFIG", "~/.config/ptzpad/config.json")).expanduser()
     try: mtime = path.stat().st_mtime
     except OSError: return
@@ -307,6 +318,9 @@ def reload_config_if_changed():
     new = [(c["host"], c["protocol"], c["port"]) for c in cfg["cameras"]]
     if new != CAMS:
         stop_all_motion(CAMS[cur]); CAMS = new; cur = min(cur, len(CAMS) - 1); reset_input_state(); status_display.camera_active(cur, CAMS[cur][0])
+    CAMERA_NAMES = [c.get("name") or c["host"] for c in cfg["cameras"]]
+    if _streamdeck:
+        _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
     max_speed, deadzone, zoom_speed = cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]
 
 
@@ -431,6 +445,10 @@ def reset_input_state() -> None:
     })
 
 
+def _camera_label(index: int) -> str:
+    return CAMERA_NAMES[index] if CAMERA_NAMES and index < len(CAMERA_NAMES) else (CAMS[index][0] if CAMS else "Camera")
+
+
 def switch_camera(new_index: int) -> int:
     """Stop all motion on the current camera before selecting another."""
     old_cam = CAMS[cur]
@@ -471,9 +489,35 @@ def read_button(joystick, index: int) -> bool:
         return False
 
 
+def process_streamdeck_actions() -> None:
+    """Drain HID actions; all camera and VISCA state changes happen here."""
+    global cur, _preset_save_armed
+    while True:
+        try:
+            action = _deck_actions.get_nowait()
+        except queue.Empty:
+            break
+        if action.kind == ActionKind.PREVIOUS_CAMERA and CAMS:
+            cur = switch_camera((cur - 1) % len(CAMS))
+            status_display.camera_active(cur, CAMS[cur][0])
+        elif action.kind == ActionKind.NEXT_CAMERA and CAMS:
+            cur = switch_camera((cur + 1) % len(CAMS))
+            status_display.camera_active(cur, CAMS[cur][0])
+        else:
+            _preset_save_armed, packet, label = resolve_deck_action(action, _preset_save_armed)
+            if packet is not None and label is not None and CAMS:
+                send(packet, CAMS[cur], label)
+        if _streamdeck:
+            _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
+
+
+_streamdeck = StreamDeckController(_deck_actions)
+_streamdeck.start()
+_streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
     reload_config_if_changed()
+    process_streamdeck_actions()
     publish_state()
     pygame.event.pump()
     status_display.refresh()
@@ -496,6 +540,8 @@ while running:
         time.sleep(0.25)          # debounce
         print(">> Control switched to CAM", cur + 1, CAMS[cur][0])
         status_display.camera_active(cur, CAMS[cur][0])
+        if _streamdeck:
+            _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
 
     # Adjust max speed / deadzone with D-pad.  SDL exposes the Xbox D-pad as
     # a hat on some drivers and as buttons on others (notably HIDAPI), so
@@ -614,4 +660,6 @@ while running:
 
 if CAMS and "cur" in globals():
     stop_all_motion(CAMS[cur])
+if _streamdeck:
+    _streamdeck.close()
 pygame.quit()
