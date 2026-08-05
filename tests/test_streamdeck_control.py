@@ -1,5 +1,7 @@
 import queue
+import json
 import unittest
+from pathlib import Path
 
 from streamdeck_control import (
     ActionKind,
@@ -56,6 +58,45 @@ class StreamDeckControlTests(unittest.TestCase):
         self.assertFalse(armed)
         self.assertEqual(packet, preset_recall_packet(2))
         self.assertEqual(label, "preset-recall")
+
+    def test_snapshot_is_json_safe(self):
+        controller = StreamDeckController(queue.Queue())
+        controller._device = controller._device_name(type("Fake", (), {"id": lambda self: "Deck Mini"})())
+        json.dumps(controller.snapshot())
+        self.assertEqual(controller.snapshot()["device"], "Deck Mini")
+
+    def test_ptzpad_starts_deck_before_joystick_wait(self):
+        source = Path(__file__).parents[1].joinpath("ptzpad.py").read_text()
+        self.assertLess(source.index("_streamdeck.start()"), source.rindex("js = wait_for_joystick()"))
+        body = source[source.index("def wait_for_joystick"):source.index("_streamdeck = StreamDeckController")]
+        self.assertIn("process_streamdeck_actions()", body)
+
+    def test_configure_disable_closes_fake_and_snapshot_is_safe(self):
+        class FakeDeck:
+            def __init__(self):
+                self.reset_count = 0
+                self.close_count = 0
+                self.brightness = None
+            def reset(self): self.reset_count += 1
+            def close(self): self.close_count += 1
+            def set_brightness(self, value): self.brightness = value
+
+        controller = StreamDeckController(queue.Queue())
+        fake = FakeDeck()
+        controller._deck = fake
+        controller.configure(enabled=False, brightness=20)
+        self.assertEqual((fake.reset_count, fake.close_count), (1, 1))
+        self.assertFalse(controller.snapshot()["enabled"])
+        json.dumps(controller.snapshot())
+
+    def test_configure_brightness_applies_to_open_fake(self):
+        class FakeDeck:
+            def set_brightness(self, value): self.brightness = value
+        controller = StreamDeckController(queue.Queue())
+        fake = FakeDeck(); controller._deck = fake
+        controller.configure(enabled=True, brightness=72)
+        self.assertEqual(fake.brightness, 72)
+        self.assertEqual(controller.snapshot()["brightness"], 72)
 
 
 if __name__ == "__main__":

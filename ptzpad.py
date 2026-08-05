@@ -192,7 +192,8 @@ def publish_state(force=False):
                "active_camera": cur, "controller": {"name": js.get_name() if js else "",
                "connected": controller_connected, "wireless": bluetooth_linked},
                "max_speed": max_speed, "deadzone": deadzone, "zoom_speed": zoom_speed,
-               "camera_send": _camera_send, "input": _input_telemetry}
+               "camera_send": _camera_send, "input": _input_telemetry,
+               "streamdeck": _streamdeck.snapshot() if _streamdeck else {"enabled": False}}
     try:
         _state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         tmp = _state_path.with_suffix(".tmp")
@@ -237,6 +238,10 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     attempts = 0
 
     while pygame.joystick.get_count() == 0 and running:
+        if "reload_config_if_changed" in globals():
+            reload_config_if_changed()
+        if _streamdeck:
+            process_streamdeck_actions()
         publish_state()
         attempts += 1
         print(">>> Waiting for joystick connection...")
@@ -260,7 +265,12 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
         else:
             print(">>> No /dev/input/js* devices found")
 
-        time.sleep(1)
+        for _ in range(10):
+            if _streamdeck:
+                process_streamdeck_actions()
+            if not running or pygame.joystick.get_count() > 0:
+                break
+            time.sleep(0.1)
         reinit_joystick()
 
         if (
@@ -290,7 +300,10 @@ def wait_for_joystick() -> pygame.joystick.Joystick:
     return js
 
 
-js = wait_for_joystick()
+_streamdeck = StreamDeckController(_deck_actions)
+_streamdeck.configure(**_cfg.get("streamdeck", {}))
+_streamdeck.start()
+js = None
 max_speed = MAX_SPEED
 deadzone = DEADZONE
 zoom_speed = MAX_ZOOM_SPEED
@@ -322,6 +335,8 @@ def reload_config_if_changed():
     if _streamdeck:
         _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
     max_speed, deadzone, zoom_speed = cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]
+    if _streamdeck:
+        _streamdeck.configure(**cfg.get("streamdeck", {}))
 
 
 def send(pkt, cam, label: str | None = None):
@@ -511,9 +526,8 @@ def process_streamdeck_actions() -> None:
             _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
 
 
-_streamdeck = StreamDeckController(_deck_actions)
-_streamdeck.start()
 _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
+js = wait_for_joystick()
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
     reload_config_if_changed()

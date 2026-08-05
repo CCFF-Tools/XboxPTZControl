@@ -66,6 +66,8 @@ The first detected visual deck is used. Target a model with at least four keys (
 
 The display shows the selected camera index/name and armed state. Presets use VISCA memory commands and are stored in the camera itself; available slot count and behavior are camera/model dependent. Troubleshoot with `journalctl -u ptzpad -f`, `lsusb`, and `id -nG` (the latter must include `input`).
 
+The dashboard Stream Deck card reports package/driver availability, connection and key count, brightness, last event/render times, selected camera, Save arming, and the latest error. Enabled and brightness are saved in the nested `streamdeck` config object and hot-reload without restarting the service. Stream Deck input is independent of the Xbox controller: camera selection and presets remain available while the joystick is disconnected. If a connected deck remains on its factory logo, inspect the card and `journalctl -u ptzpad`; install/reinstall the `streamdeck` Python package, confirm `input` group membership and the udev rule, then replug the deck (or rerun the installer).
+
 ## OLED status display
 
 The OLED is optional. When present and reachable at I2C address `0x3C`, it shows boot progress, joystick/Bluetooth link state, the active camera index/IP, and socket or configuration errors. Missing hardware or driver issues are handled gracefully: the service logs one message and continues without screen output.

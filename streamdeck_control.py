@@ -8,6 +8,7 @@ from enum import Enum
 import logging
 import queue
 import threading
+import time
 
 
 class ActionKind(str, Enum):
@@ -65,6 +66,56 @@ class StreamDeckController:
         self._camera_name = "Camera"
         self._camera_count = 1
         self._lock = threading.Lock()
+        self._device_lock = threading.RLock()
+        self._enabled = True
+        self._brightness = 35
+        self._library_available = None
+        self._last_error = None
+        self._last_render_at = None
+        self._last_event_at = None
+        self._device = ""
+        self._key_count = 0
+
+    def configure(self, enabled=True, brightness=35):
+        with self._device_lock:
+            with self._lock:
+                self._enabled = bool(enabled)
+                self._brightness = int(brightness)
+                deck = self._deck
+                if not enabled:
+                    self._last_error = None
+            if not enabled:
+                self._close_deck_locked()
+            elif deck is not None:
+                try:
+                    deck.set_brightness(int(brightness))
+                except Exception as exc:
+                    self._record_error(str(exc))
+
+    def snapshot(self):
+        with self._lock:
+            return {"enabled": self._enabled, "library_available": self._library_available,
+                    "connected": self._deck is not None, "device": self._device,
+                    "key_count": self._key_count, "brightness": self._brightness,
+                    "last_error": self._last_error, "last_render_at": self._last_render_at,
+                    "last_event_at": self._last_event_at, "save_armed": self._armed,
+                    "camera_index": self._camera_index, "camera_name": self._camera_name}
+
+    def _record_error(self, message):
+        with self._lock:
+            self._last_error = str(message)[:240]
+
+    @staticmethod
+    def _device_name(deck):
+        for attr in ("deck_type", "get_serial_number", "id"):
+            try:
+                value = getattr(deck, attr, None)
+                value = value() if callable(value) else value
+                if value is not None and not isinstance(value, (dict, list, tuple, set)):
+                    return str(value)
+            except Exception:
+                continue
+        return ""
 
     def start(self) -> None:
         if self._thread is None:
@@ -77,21 +128,29 @@ class StreamDeckController:
             self._camera_name = camera_name
             self._camera_count = max(1, camera_count)
             self._armed = armed
-        self._render()
+        with self._device_lock:
+            self._render()
 
     def close(self) -> None:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=2)
-        self._close_deck()
+        with self._device_lock:
+            self._close_deck_locked()
 
     def _run(self) -> None:
         try:
             from StreamDeck.DeviceManager import DeviceManager
+            self._library_available = True
         except ImportError:
+            self._library_available = False
+            self._record_error("streamdeck Python package unavailable")
             logging.info("Stream Deck support unavailable; install the streamdeck Python package to enable")
             return
         while not self._stop.is_set():
+            if not self._enabled:
+                self._stop.wait(self.retry_seconds)
+                continue
             if self._deck is not None and not self._deck_connected(self._deck):
                 self._close_deck()
             if self._deck is None:
@@ -100,11 +159,18 @@ class StreamDeckController:
                     if decks:
                         self._deck = decks[0]
                         self._deck.open()
-                        self._deck.set_brightness(35)
+                        self._device = self._device_name(self._deck)
+                        self._key_count = int(self._deck.key_count())
+                        if self._key_count < 4:
+                            raise RuntimeError("unsupported Stream Deck with fewer than 4 keys")
+                        self._deck.set_brightness(self._brightness)
                         self._deck.set_key_callback(self._key_callback)
                         self._render()
                         logging.info("Stream Deck connected (%s keys)", self._deck.key_count())
+                    else:
+                        self._record_error("No Stream Deck detected")
                 except Exception as exc:  # optional hardware must never stop bridge
+                    self._record_error(exc)
                     logging.info("Stream Deck unavailable: %s", exc)
                     self._close_deck()
             self._stop.wait(self.retry_seconds)
@@ -124,7 +190,12 @@ class StreamDeckController:
             return False
 
     def _close_deck(self) -> None:
+        with self._device_lock:
+            self._close_deck_locked()
+
+    def _close_deck_locked(self) -> None:
         deck, self._deck = self._deck, None
+        self._key_count = 0
         if deck is not None:
             try:
                 deck.reset()
@@ -138,11 +209,16 @@ class StreamDeckController:
     def _key_callback(self, deck, key: int, state: bool) -> None:
         if not state:
             return
+        self._last_event_at = time.time()
         action = map_key_action(key, int(deck.key_count()))
         if action is not None:
             self.actions.put(action)
 
     def _render(self) -> None:
+        with self._device_lock:
+            self._render_locked()
+
+    def _render_locked(self) -> None:
         deck = self._deck
         if deck is None:
             return
@@ -178,8 +254,12 @@ class StreamDeckController:
                     native_image = PILHelper.create_image(deck)
                     native_image.paste(image)
                 deck.set_key_image(key, native(deck, native_image))
-        except Exception:
-            # Rendering is cosmetic; callbacks continue to work.
+            self._last_render_at = time.time()
+            with self._lock:
+                self._last_error = None
+        except Exception as exc:
+            self._record_error("render: " + str(exc))
+            logging.info("Stream Deck render failed: %s", exc)
             return
 
 

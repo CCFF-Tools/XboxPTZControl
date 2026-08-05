@@ -36,6 +36,16 @@ def validate_config(value):
     if not isinstance(cams, list) or not cams or len(cams) > 64:
         raise ValueError("cameras must be a non-empty list")
     out = {"cameras": [_camera(c) for c in cams]}
+    deck = value.get("streamdeck", {})
+    if not isinstance(deck, dict):
+        raise ValueError("streamdeck must be an object")
+    enabled = deck.get("enabled", True)
+    brightness = deck.get("brightness", 35)
+    if not isinstance(enabled, bool):
+        raise ValueError("invalid streamdeck enabled")
+    if not isinstance(brightness, int) or isinstance(brightness, bool) or not 0 <= brightness <= 100:
+        raise ValueError("invalid streamdeck brightness")
+    out["streamdeck"] = {"enabled": enabled, "brightness": brightness}
     for key, default in (("max_speed", 24), ("deadzone", 0.15), ("zoom_speed", 7)):
         if key in value:
             out[key] = value[key]

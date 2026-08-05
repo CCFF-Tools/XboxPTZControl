@@ -112,6 +112,13 @@ class DashboardHelperTests(unittest.TestCase):
         self.assertIn("Discover cameras", ptz_dashboard.HTML)
         self.assertNotIn("innerHTML", ptz_dashboard.HTML)
 
+    def test_html_contains_streamdeck_status_and_controls(self):
+        import ptz_dashboard
+
+        self.assertIn("deckBrightness", ptz_dashboard.HTML)
+        self.assertIn("deckEnabled", ptz_dashboard.HTML)
+        self.assertIn("last_render_at", ptz_dashboard.HTML)
+
 
 if __name__ == "__main__":
     unittest.main()

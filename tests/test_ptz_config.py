@@ -39,6 +39,22 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(config["cameras"][0]["model"], "Move 4K")
 
+    def test_streamdeck_defaults_and_validation(self):
+        config = validate_config({"cameras": [{"host": "cam"}]})
+        self.assertEqual(config["streamdeck"], {"enabled": True, "brightness": 35})
+        with self.assertRaises(ValueError):
+            validate_config({"cameras": [{"host": "cam"}], "streamdeck": {"brightness": 101}})
+        with self.assertRaises(ValueError):
+            validate_config({"cameras": [{"host": "cam"}], "streamdeck": None})
+        with self.assertRaises(ValueError):
+            validate_config({"cameras": [{"host": "cam"}], "streamdeck": {"brightness": True}})
+
+    def test_streamdeck_roundtrip(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "config.json"
+            save_config({"cameras": [{"host": "cam"}], "streamdeck": {"enabled": False, "brightness": 12}}, path)
+            self.assertEqual(load_config({"PTZPAD_CONFIG": str(path)})["streamdeck"], {"enabled": False, "brightness": 12})
+
 
 if __name__ == "__main__":
     unittest.main()
