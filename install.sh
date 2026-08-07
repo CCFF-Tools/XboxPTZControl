@@ -152,7 +152,7 @@ install -d -m 700 -o "${TARGET_USER}" -g "${TARGET_GROUP}" "${CONFIG_DIR}"
 if [[ ! -f "${CONFIG_DIR}/config.json" ]]; then
     printf '{"cameras":[' > "${CONFIG_DIR}/config.json"
     first=1; for cam in "${CAMS[@]}"; do proto="${cam%%:*}"; rest="${cam#*:}"; host="${rest%%:*}"; port="${rest#*:}"; [[ "${rest}" == "${host}" ]] && port=5678; [[ "${proto}" == udp ]] && [[ "${rest}" == "${host}" ]] && port=1259; [[ $first -eq 0 ]] && printf ',' >> "${CONFIG_DIR}/config.json"; first=0; printf '{"host":"%s","protocol":"%s","port":%s,"name":"%s","model":""}' "$host" "$proto" "$port" "$host" >> "${CONFIG_DIR}/config.json"; done
-    printf '],"max_speed":12,"deadzone":0.15,"zoom_speed":3}\n' >> "${CONFIG_DIR}/config.json"; chmod 600 "${CONFIG_DIR}/config.json"; chown "${TARGET_USER}:${TARGET_GROUP}" "${CONFIG_DIR}/config.json"
+    printf '],"max_speed":12,"deadzone":0.15,"zoom_speed":3,"controls":{"y_button_zoom_speed_up":false}}\n' >> "${CONFIG_DIR}/config.json"; chmod 600 "${CONFIG_DIR}/config.json"; chown "${TARGET_USER}:${TARGET_GROUP}" "${CONFIG_DIR}/config.json"
 fi
 if getent group systemd-journal >/dev/null 2>&1; then usermod -aG systemd-journal "${TARGET_USER}" || true; echo " • Added ${TARGET_USER} to systemd-journal (log out/in to apply)"; fi
 

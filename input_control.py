@@ -115,12 +115,13 @@ class ButtonLayout:
     lb: int
     rb: int
     ls: int
+    y: int
 
 
-EVDEV_LAYOUT = ButtonLayout(lb=4, rb=5, ls=9)
+EVDEV_LAYOUT = ButtonLayout(lb=4, rb=5, ls=9, y=3)
 # HIDAPI exposes the D-pad as buttons 11..14 and shifts the bumpers/stick
 # click relative to the evdev layout.
-HIDAPI_LAYOUT = ButtonLayout(lb=9, rb=10, ls=7)
+HIDAPI_LAYOUT = ButtonLayout(lb=9, rb=10, ls=7, y=3)
 
 
 def controller_layout(button_count: int, hat_count: int) -> ButtonLayout:

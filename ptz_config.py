@@ -46,6 +46,13 @@ def validate_config(value):
     if not isinstance(brightness, int) or isinstance(brightness, bool) or not 0 <= brightness <= 100:
         raise ValueError("invalid streamdeck brightness")
     out["streamdeck"] = {"enabled": enabled, "brightness": brightness}
+    controls = value.get("controls", {})
+    if not isinstance(controls, dict):
+        raise ValueError("controls must be an object")
+    y_button_zoom_speed_up = controls.get("y_button_zoom_speed_up", False)
+    if not isinstance(y_button_zoom_speed_up, bool):
+        raise ValueError("invalid controls.y_button_zoom_speed_up")
+    out["controls"] = {"y_button_zoom_speed_up": y_button_zoom_speed_up}
     for key, default in (("max_speed", 12), ("deadzone", 0.15), ("zoom_speed", 3)):
         if key in value:
             out[key] = value[key]

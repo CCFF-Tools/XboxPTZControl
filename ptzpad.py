@@ -172,6 +172,7 @@ cur = 0
 max_speed = _cfg["max_speed"]
 deadzone = DEADZONE
 zoom_speed = _cfg["zoom_speed"]
+y_button_zoom_speed_up = _cfg.get("controls", {}).get("y_button_zoom_speed_up", False)
 js = None
 controller_connected = False
 _started = time.time()
@@ -320,7 +321,7 @@ _cfg_mtime = 0.0
 
 
 def reload_config_if_changed():
-    global CAMS, CAMERA_NAMES, cur, max_speed, deadzone, zoom_speed, _cfg_mtime
+    global CAMS, CAMERA_NAMES, cur, max_speed, deadzone, zoom_speed, y_button_zoom_speed_up, _cfg_mtime
     path = Path(os.environ.get("PTZPAD_CONFIG", "~/.config/ptzpad/config.json")).expanduser()
     try: mtime = path.stat().st_mtime
     except OSError: return
@@ -333,6 +334,7 @@ def reload_config_if_changed():
         stop_all_motion(CAMS[cur]); CAMS = new; cur = min(cur, len(CAMS) - 1); reset_input_state(); status_display.camera_active(cur, CAMS[cur][0])
     CAMERA_NAMES = [c.get("name") or c["host"] for c in cfg["cameras"]]
     max_speed, deadzone, zoom_speed = cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]
+    y_button_zoom_speed_up = cfg.get("controls", {}).get("y_button_zoom_speed_up", False)
     if _streamdeck:
         _update_streamdeck()
     if _streamdeck:
@@ -588,6 +590,7 @@ while running:
     edges = button_edges.rising({
         "LB": read_button(js, layout.lb),
         "RB": read_button(js, layout.rb),
+        "Y": read_button(js, layout.y),
         "LS": read_button(js, layout.ls),
     })
     if hat_y == 1:
@@ -610,8 +613,9 @@ while running:
         time.sleep(0.25)
         print(f">> DEADZONE {deadzone:.2f}")
 
-    # adjust zoom speed with RB (increase) / LB (decrease) bumpers
-    if "RB" in edges:
+    # Adjust zoom speed with RB (or opt-in Y) increase / LB decrease.
+    zoom_up_button = "Y" if y_button_zoom_speed_up else "RB"
+    if zoom_up_button in edges:
         zoom_speed = min(zoom_speed + 1, MAX_ZOOM_SPEED)
         _update_streamdeck()
         print(">> ZOOM_SPEED", zoom_speed)
@@ -688,7 +692,7 @@ while running:
                 "lt": f"{lt:.2f}",
                 "rt": f"{rt:.2f}",
             }
-            buttons = {"A": read_button(js, 0), "LB": read_button(js, layout.lb), "RB": read_button(js, layout.rb), "LS": read_button(js, layout.ls)}
+            buttons = {"A": read_button(js, 0), "LB": read_button(js, layout.lb), "RB": read_button(js, layout.rb), "Y": read_button(js, layout.y), "LS": read_button(js, layout.ls)}
             print(
                 ">>> INPUT",
                 axes,
