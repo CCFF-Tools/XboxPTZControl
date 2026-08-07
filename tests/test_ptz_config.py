@@ -26,8 +26,24 @@ class ConfigTests(unittest.TestCase):
     def test_tuning_defaults_and_bounds(self):
         cfg = validate_config({"cameras": [{"host": "cam"}]})
         self.assertEqual((cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]), (12, 0.15, 3))
+        self.assertEqual(cfg["controls"], {"y_button_zoom_speed_up": False})
         explicit = validate_config({"cameras": [{"host": "cam"}], "max_speed": 24, "zoom_speed": 7})
         self.assertEqual((explicit["max_speed"], explicit["zoom_speed"]), (24, 7))
+
+    def test_y_button_zoom_toggle(self):
+        cfg = validate_config({"cameras": [{"host": "cam"}], "controls": {"y_button_zoom_speed_up": True}})
+        self.assertTrue(cfg["controls"]["y_button_zoom_speed_up"])
+
+        with self.assertRaises(ValueError):
+            validate_config({"cameras": [{"host": "cam"}], "controls": None})
+        with self.assertRaises(ValueError):
+            validate_config({"cameras": [{"host": "cam"}], "controls": {"y_button_zoom_speed_up": 1}})
+
+    def test_y_button_zoom_toggle_roundtrip(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "config.json"
+            save_config({"cameras": [{"host": "cam"}], "controls": {"y_button_zoom_speed_up": True}}, path)
+            self.assertTrue(load_config({"PTZPAD_CONFIG": str(path)})["controls"]["y_button_zoom_speed_up"])
 
     def test_camera_model_metadata_is_preserved(self):
         config = validate_config(

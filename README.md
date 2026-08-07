@@ -121,7 +121,7 @@ For example, when using a software I2C overlay on GPIO 23/24 configured as bus 3
 | A | Cycle to next camera |
 | D-pad up/down | Increase / decrease max speed |
 | D-pad left/right | Increase / decrease deadzone |
-| RB / LB | Increase / decrease zoom speed |
+| RB / LB | Increase / decrease zoom speed (or Y / LB when `controls.y_button_zoom_speed_up` is enabled) |
 
 Zoom speed value `0` (including the dashboard setting) is the slowest zoom
 speed; it does not disable zoom. Trigger depression ramps from slowest to the
@@ -141,7 +141,7 @@ export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
 # format: proto:ip[:port] (defaults 5678 TCP, 1259 UDP)
 ```
 
-- Defaults are a moderate pan/tilt max speed of 12 (range 1–24) and zoom speed 3 (range 0–7). Adjust speed / dead-zone / zoom speed with the D-pad or RB/LB bumpers, through the dashboard, or in `~/.config/ptzpad/config.json`.
+- Defaults are a moderate pan/tilt max speed of 12 (range 1–24) and zoom speed 3 (range 0–7). Adjust speed / dead-zone / zoom speed with the D-pad or RB/LB bumpers, through the dashboard, or in `~/.config/ptzpad/config.json`. For controllers with a faulty RB, set `"controls": {"y_button_zoom_speed_up": true}`; Y then replaces RB for zoom-speed increase while LB remains decrease.
 
 ## Service management
 

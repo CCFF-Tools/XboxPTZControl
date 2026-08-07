@@ -37,6 +37,7 @@ class InputControlTests(unittest.TestCase):
         self.assertEqual(controller_layout(15, 0), HIDAPI_LAYOUT)
         self.assertEqual((EVDEV_LAYOUT.lb, EVDEV_LAYOUT.rb, EVDEV_LAYOUT.ls), (4, 5, 9))
         self.assertEqual((HIDAPI_LAYOUT.lb, HIDAPI_LAYOUT.rb, HIDAPI_LAYOUT.ls), (9, 10, 7))
+        self.assertEqual((EVDEV_LAYOUT.y, HIDAPI_LAYOUT.y), (3, 3))
         edges = ButtonEdges()
         self.assertEqual(edges.rising({"RB": True}), {"RB"})
         self.assertEqual(edges.rising({"RB": True}), set())

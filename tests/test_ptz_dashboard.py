@@ -122,6 +122,12 @@ class DashboardHelperTests(unittest.TestCase):
         self.assertIn("markDirty", ptz_dashboard.HTML)
         self.assertIn("generation===editGeneration", ptz_dashboard.HTML)
 
+    def test_html_contains_y_button_zoom_speed_control(self):
+        import ptz_dashboard
+
+        self.assertIn("yButtonZoomSpeedUp", ptz_dashboard.HTML)
+        self.assertIn("y_button_zoom_speed_up", ptz_dashboard.HTML)
+
 
 if __name__ == "__main__":
     unittest.main()
