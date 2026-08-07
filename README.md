@@ -53,7 +53,7 @@ Hardware you need:
 
 ## Stream Deck controls (optional)
 
-The installer adds the `streamdeck` Python package, `libhidapi-libusb0`, and a scoped udev rule for Elgato's vendor ID (`0fd9`) granting the existing `input` group access. If the Python package cannot be downloaded, the bridge still starts and logs that Stream Deck support is unavailable. Replug the deck after installation (or reload udev rules) and ensure the service user is in `input`.
+On Raspberry Pi OS Bookworm, the installer prefers Debian's `python3-elgato-streamdeck` package and verifies `import StreamDeck` with the service interpreter. On older Bullseye images where that package is unavailable, it falls back to the `streamdeck` Python package via pip. It also installs `libhidapi-libusb0` and a scoped udev rule for Elgato's vendor ID (`0fd9`) granting the existing `input` group access. If installation/import fails, the bridge still starts without Stream Deck support.
 
 The first detected visual deck is used. Target a model with at least four keys (such as Stream Deck Mini, standard, or XL); three keys are reserved for camera/save controls and the remainder hold presets. Three-key Pedal devices have no preset key or useful display and are not a supported target. The default layout adapts to key count:
 
@@ -66,7 +66,7 @@ The first detected visual deck is used. Target a model with at least four keys (
 
 The display shows the selected camera index/name and armed state. Presets use VISCA memory commands and are stored in the camera itself; available slot count and behavior are camera/model dependent. Troubleshoot with `journalctl -u ptzpad -f`, `lsusb`, and `id -nG` (the latter must include `input`).
 
-The dashboard Stream Deck card reports package/driver availability, connection and key count, brightness, last event/render times, selected camera, Save arming, and the latest error. Enabled and brightness are saved in the nested `streamdeck` config object and hot-reload without restarting the service. Stream Deck input is independent of the Xbox controller: camera selection and presets remain available while the joystick is disconnected. If a connected deck remains on its factory logo, inspect the card and `journalctl -u ptzpad`; install/reinstall the `streamdeck` Python package, confirm `input` group membership and the udev rule, then replug the deck (or rerun the installer).
+The dashboard Stream Deck card reports package/driver availability, connection and key count, brightness, last event/render times, selected camera, Save arming, and the latest error. Enabled and brightness are saved in the nested `streamdeck` config object and hot-reload without restarting the service. Stream Deck input is independent of the Xbox controller: camera selection and presets remain available while the joystick is disconnected. If a connected deck remains on its factory logo, inspect the card and `journalctl -u ptzpad`; then recover with `sudo apt update`, `sudo apt install -y python3-elgato-streamdeck`, and `sudo systemctl restart ptzpad` (or rerun the installer), and replug the deck. The dashboard Library status should become available; also confirm `input` group membership and the udev rule.
 
 ## OLED status display
 

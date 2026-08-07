@@ -98,6 +98,15 @@ class StreamDeckControlTests(unittest.TestCase):
         self.assertEqual(fake.brightness, 72)
         self.assertEqual(controller.snapshot()["brightness"], 72)
 
+    def test_installer_prefers_verified_os_package_then_pip_fallback(self):
+        source = Path(__file__).parents[1].joinpath("install.sh").read_text()
+        import_check = source.index("/usr/bin/python3 -c 'import StreamDeck'")
+        apt_package = source.index("python3-elgato-streamdeck")
+        pip_fallback = source.index("pip3 install streamdeck")
+        self.assertLess(import_check, apt_package)
+        self.assertLess(apt_package, pip_fallback)
+        self.assertIn("apt-cache show python3-elgato-streamdeck", source)
+
 
 if __name__ == "__main__":
     unittest.main()

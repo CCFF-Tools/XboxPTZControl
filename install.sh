@@ -10,7 +10,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
     echo "error: run this installer as root (for example: sudo bash install.sh)" >&2
     exit 1
 fi
-for required_cmd in apt-get systemctl getent id; do
+for required_cmd in apt-get apt-cache systemctl getent id; do
     if ! command -v "${required_cmd}" >/dev/null 2>&1; then
         echo "error: required command not found: ${required_cmd}" >&2
         exit 1
@@ -65,13 +65,22 @@ fi
 
 # Stream Deck support is optional and must not block bridge installation.
 STREAMDECK_STATUS="success"
-if pip3 show streamdeck >/dev/null 2>&1; then
-    echo " • streamdeck Python package already present"
-elif pip3 install streamdeck; then
+if /usr/bin/python3 -c 'import StreamDeck' >/dev/null 2>&1; then
+    echo " • Stream Deck library already importable by /usr/bin/python3"
+elif apt-cache show python3-elgato-streamdeck >/dev/null 2>&1; then
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y python3-elgato-streamdeck \
+        && /usr/bin/python3 -c 'import StreamDeck' >/dev/null 2>&1; then
+        echo " • Installed python3-elgato-streamdeck from APT"
+    else
+        STREAMDECK_STATUS="issues"
+        echo " • WARNING: APT Stream Deck package install/import failed; bridge will run without it"
+    fi
+elif pip3 install streamdeck \
+    && /usr/bin/python3 -c 'import StreamDeck' >/dev/null 2>&1; then
     echo " • Installed streamdeck Python package via pip"
 else
     STREAMDECK_STATUS="issues"
-    echo " • WARNING: Stream Deck package install failed; bridge will run without it"
+    echo " • WARNING: Stream Deck package unavailable or not importable by /usr/bin/python3; bridge will run without it"
 fi
 
 if command -v raspi-config >/dev/null 2>&1; then
@@ -219,7 +228,7 @@ else
     printf ' - %s\n' "${OLED_NOTES[@]}"
 fi
 if [[ "${STREAMDECK_STATUS}" == "success" ]]; then
-    echo "Stream Deck setup: success (streamdeck Python package + libhidapi-libusb0)"
+    echo "Stream Deck setup: success (Python library import verified + libhidapi-libusb0)"
 else
     echo "Stream Deck setup: optional package unavailable; bridge remains functional without a deck"
 fi
