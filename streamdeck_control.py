@@ -25,6 +25,17 @@ class ActionKind(str, Enum):
     PRESET = "preset"
 
 
+def key_layout(key_count: int) -> dict[int, tuple[str, int | None]]:
+    """Return semantic key mapping; Original V2 reserves its left column."""
+    if key_count == 15:
+        preset_keys = [4, 6, 7, 8, 9, 11, 12, 13, 14]
+        return {0: ("status", None), 5: ("status", None), 10: ("status", None),
+                1: ("previous", None), 2: ("next", None), 3: ("save", None),
+                **{key: ("preset", index + 1) for index, key in enumerate(preset_keys)}}
+    return {0: ("previous", None), 1: ("next", None), 2: ("save", None),
+            **{key: ("preset", key - 2) for key in range(3, key_count)}}
+
+
 @dataclass(frozen=True)
 class DeckAction:
     kind: ActionKind
@@ -57,8 +68,9 @@ def validate_snapshot(data: bytes, content_type: str = "") -> bytes:
 
 
 class ThumbnailStore:
-    def __init__(self, root=None):
+    def __init__(self, root=None, sleeper=time.sleep):
         self.root = Path(root or os.environ.get("PTZPAD_CACHE", "~/.cache/ptzpad/thumbnails")).expanduser()
+        self.sleeper = sleeper
         self._lock = threading.Lock()
         self._generations = {}
 
@@ -77,25 +89,29 @@ class ThumbnailStore:
     def capture(self, camera, preset, timeout=1.5, reservation=None):
         host = camera[0] if isinstance(camera, tuple) else str(camera)
         target, generation = reservation or self.reserve(camera, preset)
-        query = urlencode({"ptzpad_ts": time.time_ns()})
-        request = Request(
-            f"http://{host}/snapshot.jpg?{query}",
-            headers={
-                "Accept": "image/jpeg,image/png",
-                "Cache-Control": "no-cache, no-store, max-age=0",
-                "Pragma": "no-cache",
-            },
-        )
-
         class NoRedirect(HTTPRedirectHandler):
             def redirect_request(self, req, fp, code, msg, headers, newurl):
                 raise ValueError("snapshot redirect rejected")
 
-        with build_opener(NoRedirect).open(request, timeout=timeout) as response:
-            data = validate_snapshot(
-                response.read(2 * 1024 * 1024 + 1),
-                response.headers.get("Content-Type", ""),
+        def fetch():
+            query = urlencode({"ptzpad_ts": time.time_ns()})
+            request = Request(
+                f"http://{host}/snapshot.jpg?{query}",
+                headers={
+                    "Accept": "image/jpeg,image/png",
+                    "Cache-Control": "no-cache, no-store, max-age=0",
+                    "Pragma": "no-cache",
+                },
             )
+            with build_opener(NoRedirect).open(request, timeout=timeout) as response:
+                return validate_snapshot(
+                    response.read(2 * 1024 * 1024 + 1),
+                    response.headers.get("Content-Type", ""),
+                )
+
+        fetch()
+        self.sleeper(0.25)
+        data = fetch()
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd, temp = tempfile.mkstemp(prefix=".snapshot-", dir=str(target.parent))
         try:
@@ -136,6 +152,31 @@ def camera_label_lines(name: str, max_chars: int = 10) -> list[str]:
     if len(text) <= max_chars:
         return [text]
     return [text[:max_chars], text[max_chars : max_chars * 2]]
+
+
+def status_key_lines(
+    key,
+    index,
+    total,
+    name,
+    camera,
+    max_speed,
+    zoom_speed,
+    telemetry,
+):
+    """Return compact lines for the three Standard-deck status keys."""
+    if key == 0:
+        return [f"Cam {index + 1}/{total}", *camera_label_lines(name)]
+    if key == 5:
+        return [f"PT {max_speed}", f"Zoom {zoom_speed}"]
+    if key == 10:
+        host = camera[0] if isinstance(camera, tuple) else str(camera or "")
+        return [
+            *camera_label_lines(host),
+            f"WB {telemetry.get('wb_mode', '-')}",
+            f"AE {telemetry.get('ae_mode', '-')}",
+        ]
+    return []
 
 
 WB_INQUIRY = b"\x81\x09\x04\x35\xff"
@@ -208,6 +249,8 @@ class StreamDeckController:
         self._device = ""
         self._key_count = 0
         self._camera_host = None
+        self._max_speed = 24
+        self._zoom_speed = 7
         self._thumbnails = ThumbnailStore()
         self._telemetry = {}
         self._telemetry_camera = None
@@ -308,13 +351,14 @@ class StreamDeckController:
                 continue
             self._poll_telemetry_once()
 
-    def update(self, camera_index: int, camera_name: str, camera_count: int, armed: bool, camera_host=None) -> None:
+    def update(self, camera_index: int, camera_name: str, camera_count: int, armed: bool, camera_host=None, max_speed=24, zoom_speed=7) -> None:
         with self._lock:
             self._camera_index = camera_index
             self._camera_name = camera_name
             self._camera_count = max(1, camera_count)
             self._armed = armed
             self._camera_host = camera_host
+            self._max_speed, self._zoom_speed = max_speed, zoom_speed
         if isinstance(camera_host, tuple):
             self.set_telemetry_camera(camera_host)
         with self._device_lock:
@@ -463,10 +507,18 @@ class StreamDeckController:
             from StreamDeck.ImageHelpers import PILHelper
             font = ImageFont.load_default()
             with self._lock:
-                idx, name, total, armed = self._camera_index, self._camera_name, self._camera_count, self._armed
-            labels = [f"< Cam", "Cam >", "SAVE" + ("*" if armed else "")]
-            labels.extend(str(i) for i in range(1, max(1, int(deck.key_count()) - 2) + 1))
-            for key in range(int(deck.key_count())):
+                idx = self._camera_index
+                name = self._camera_name
+                total = self._camera_count
+                armed = self._armed
+                camera = self._camera_host
+                max_speed = self._max_speed
+                zoom_speed = self._zoom_speed
+                telemetry = dict(self._telemetry)
+            key_count = int(deck.key_count())
+            layout = key_layout(key_count)
+            for key in range(key_count):
+                kind, preset_slot = layout.get(key, ("none", None))
                 create = getattr(PILHelper, "create_key_image", None)
                 native = getattr(PILHelper, "to_native_key_format", None)
                 if native is None:
@@ -474,25 +526,42 @@ class StreamDeckController:
                 native_image = create(deck) if create is not None else PILHelper.create_image(deck)
                 width, height = native_image.size
                 draw = ImageDraw.Draw(native_image)
-                draw.rectangle((0, 0, width, height), fill=(120, 40, 20) if key == 2 and armed else (20, 20, 20))
+                background = (
+                    (120, 40, 20)
+                    if kind == "save" and armed
+                    else (20, 20, 20)
+                )
+                draw.rectangle((0, 0, width, height), fill=background)
                 thumbnail = None
-                if key >= 3 and self._camera_host:
-                    thumbnail = self._thumbnails.path(self._camera_host, key - 2)
+                if kind == "preset" and camera:
+                    thumbnail = self._thumbnails.path(camera, preset_slot)
                 if thumbnail and thumbnail.exists():
                     try:
                         from PIL import Image
                         thumb = Image.open(thumbnail).convert(native_image.mode)
                         thumb.thumbnail((width, height))
-                        native_image.paste(thumb, ((width - thumb.width) // 2, (height - thumb.height) // 2))
+                        native_image.paste(
+                            thumb,
+                            ((width - thumb.width) // 2, (height - thumb.height) // 2),
+                        )
                         draw = ImageDraw.Draw(native_image)
                     except Exception as exc:
                         self._record_error("thumbnail: " + str(exc))
-                label = labels[key] if key < len(labels) else ""
-                if key == 0:
-                    label = f"< {idx + 1}/{total}"
-                elif key == 1:
-                    label = f"{idx + 1}/{total} >"
-                if key == 2:
+                if kind == "status":
+                    lines = status_key_lines(
+                        key,
+                        idx,
+                        total,
+                        name,
+                        camera,
+                        max_speed,
+                        zoom_speed,
+                        telemetry,
+                    )
+                    for line_no, line in enumerate(lines):
+                        draw.text((4, 4 + line_no * 9), line, fill="white", font=font)
+                elif kind == "save" and key_count != 15:
+                    label = "SAVE" + ("*" if armed else "")
                     draw.text((4, 4), label, fill="white", font=font)
                     lines = camera_label_lines(name)
                     for line_no, line in enumerate(lines):
@@ -502,8 +571,6 @@ class StreamDeckController:
                             fill="white",
                             font=font,
                         )
-                    with self._lock:
-                        telemetry = dict(self._telemetry)
                     status = (
                         f"WB {telemetry.get('wb_mode', '-')} "
                         f"AE {telemetry.get('ae_mode', '-')}"
@@ -515,6 +582,13 @@ class StreamDeckController:
                         font=font,
                     )
                 else:
+                    labels = {
+                        "previous": f"< {idx + 1}/{total}",
+                        "next": f"{idx + 1}/{total} >",
+                        "save": "SAVE" + ("*" if armed else ""),
+                        "preset": str(preset_slot),
+                    }
+                    label = labels.get(kind, "")
                     draw.text((4, height // 3), label, fill="white", font=font)
                 deck.set_key_image(key, native(deck, native_image))
             with self._lock:
@@ -528,12 +602,13 @@ class StreamDeckController:
 
 def map_key_action(key: int, key_count: int) -> DeckAction | None:
     """Pure key mapping helper used by tests and callback implementations."""
-    if key == 0:
+    kind, preset = key_layout(key_count).get(key, ("none", None))
+    if kind == "previous":
         return DeckAction(ActionKind.PREVIOUS_CAMERA)
-    if key == 1:
+    if kind == "next":
         return DeckAction(ActionKind.NEXT_CAMERA)
-    if key == 2:
+    if kind == "save":
         return DeckAction(ActionKind.TOGGLE_SAVE)
-    if 3 <= key < key_count:
-        return DeckAction(ActionKind.PRESET, key - 2)
+    if kind == "preset":
+        return DeckAction(ActionKind.PRESET, preset)
     return None

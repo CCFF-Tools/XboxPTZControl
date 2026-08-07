@@ -65,18 +65,23 @@ Use `--camera 192.168.10.44` or `--output /tmp/ptz-check` to override selection/
 
 On Raspberry Pi OS Bookworm, the installer prefers Debian's `python3-elgato-streamdeck` package and verifies `import StreamDeck` with the service interpreter. On older Bullseye images where that package is unavailable, it falls back to the `streamdeck` Python package via pip. It also installs `libhidapi-libusb0` and a scoped udev rule for Elgato's vendor ID (`0fd9`) granting the existing `input` group access. If installation/import fails, the bridge still starts without Stream Deck support.
 
-The first detected visual deck is used. Target a model with at least four keys (such as Stream Deck Mini, standard, or XL); three keys are reserved for camera/save controls and the remainder hold presets. Three-key Pedal devices have no preset key or useful display and are not a supported target. The default layout adapts to key count:
+The first detected visual deck is used. Target a model with at least four keys (such as Stream Deck Mini, standard, or XL). Three-key Pedal devices have no preset key or useful display and are not a supported target. The Standard 15-key deck reserves its left column for status:
 
 | Keys | Action |
 |---|---|
-| 0 | Previous camera |
-| 1 | Next camera |
-| 2 | Toggle **Save** mode (highlighted while armed) |
-| 3 onward | Presets 1, 2, 3… (normal press recalls; Save armed stores then disarms) |
+| 0 (top-left) | Selected camera index and name |
+| 5 (middle-left) | Live pan/tilt and zoom speeds |
+| 10 (bottom-left) | Camera address, white balance, and exposure mode |
+| 1 / 2 / 3 | Previous camera / next camera / toggle **Save** mode |
+| 4, 6–9, 11–14 | Presets 1–9 (normal press recalls; Save armed stores then disarms) |
+
+Other supported deck sizes keep the legacy adaptive layout: keys 0, 1, and 2 are Previous, Next, and Save; keys 3 onward are presets.
 
 The display shows the selected camera index/name and armed state. Presets use VISCA memory commands and are stored in the camera itself; available slot count and behavior are camera/model dependent. Troubleshoot with `journalctl -u ptzpad -f`, `lsusb`, and `id -nG` (the latter must include `input`).
 
-The dashboard Stream Deck card reports package/driver availability, connection and key count, brightness, last event/render times, selected camera, Save arming, and the latest error. It also polls active TCP cameras at low rate for WB and AE mode; unsupported or UDP cameras are tolerated. These values appear compactly on the Save/navigation key. Enabled and brightness are saved in the nested `streamdeck` config object and hot-reload without restarting the service. Stream Deck input is independent of the Xbox controller: camera selection and presets remain available while the joystick is disconnected. If a connected deck remains on its factory logo, inspect the card and `journalctl -u ptzpad`; then recover with `sudo apt update`, `sudo apt install -y python3-elgato-streamdeck`, and `sudo systemctl restart ptzpad` (or rerun the installer), and replug the deck. The dashboard Library status should become available; also confirm `input` group membership and the udev rule.
+The dashboard Stream Deck card reports package/driver availability, connection and key count, brightness, last event/render times, selected camera, Save arming, and the latest error. It also polls active TCP cameras at low rate for WB and AE mode; unsupported or UDP cameras are tolerated. On the Standard deck these values appear in the bottom-left status key. Enabled and brightness are saved in the nested `streamdeck` config object and hot-reload without restarting the service. Stream Deck input is independent of the Xbox controller: camera selection and presets remain available while the joystick is disconnected. If a connected deck remains on its factory logo, inspect the card and `journalctl -u ptzpad`; then recover with `sudo apt update`, `sudo apt install -y python3-elgato-streamdeck`, and `sudo systemctl restart ptzpad` (or rerun the installer), and replug the deck. The dashboard Library status should become available; also confirm `input` group membership and the udev rule.
+
+Preset thumbnails intentionally perform two cache-busted snapshot requests, using the second settled frame.
 
 ## OLED status display
 

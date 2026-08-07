@@ -13,10 +13,12 @@ from streamdeck_control import (
     StreamDeckController,
     ThumbnailStore,
     camera_label_lines,
+    key_layout,
     map_key_action,
     preset_recall_packet,
     preset_set_packet,
     resolve_deck_action,
+    status_key_lines,
 )
 
 
@@ -215,6 +217,52 @@ class StreamDeckControlTests(unittest.TestCase):
             )
             self.assertEqual(opener.request.headers["Pragma"], "no-cache")
 
+    def test_thumbnail_double_fetch_persists_second_frame(self):
+        class TwoResponse:
+            def __init__(self, values):
+                self.values = iter(values)
+                self.requests = []
+
+            def open(self, request, timeout):
+                self.requests.append(request)
+
+                class R:
+                    headers = {"Content-Type": "image/jpeg"}
+
+                    def __init__(self, data):
+                        self.data = data
+
+                    def read(self, _):
+                        return self.data
+
+                    def __enter__(self):
+                        return self
+
+                    def __exit__(self, *args):
+                        pass
+
+                return R(next(self.values))
+
+        first = b"\xff\xd8" + b"first-frame-data" * 2 + b"\xff\xd9"
+        second = b"\xff\xd8" + b"second-frame-data" * 2 + b"\xff\xd9"
+        with tempfile.TemporaryDirectory() as root:
+            sleeps = []
+            store = ThumbnailStore(root, sleeper=sleeps.append)
+            opener = TwoResponse([first, second])
+            reservation = store.reserve(("cam", "tcp", 1), 1)
+            with patch("streamdeck_control.build_opener", return_value=opener):
+                store.capture(("cam", "tcp", 1), 1, reservation=reservation)
+            self.assertEqual(len(opener.requests), 2)
+            self.assertNotEqual(
+                opener.requests[0].full_url,
+                opener.requests[1].full_url,
+            )
+            self.assertEqual(sleeps, [0.25])
+            self.assertEqual(
+                store.path(("cam", "tcp", 1), 1).read_bytes(),
+                second,
+            )
+
     def test_telemetry_worker_wiring_and_render_surface(self):
         from unittest.mock import patch
         controller = StreamDeckController(queue.Queue())
@@ -239,6 +287,68 @@ class StreamDeckControlTests(unittest.TestCase):
         wrapped = camera_label_lines("A very long camera name")
         self.assertLessEqual(len(wrapped), 2)
         self.assertTrue(all(len(line) <= 10 for line in wrapped))
+
+    def test_original_v2_layout_and_legacy_mapping(self):
+        layout = key_layout(15)
+        self.assertEqual(
+            [key for key, value in layout.items() if value[0] == "status"],
+            [0, 5, 10],
+        )
+        preset_keys = [4, 6, 7, 8, 9, 11, 12, 13, 14]
+        self.assertEqual(
+            [layout[key][1] for key in preset_keys],
+            list(range(1, 10)),
+        )
+        self.assertIsNone(map_key_action(0, 15))
+        self.assertEqual(
+            map_key_action(1, 15),
+            DeckAction(ActionKind.PREVIOUS_CAMERA),
+        )
+        self.assertEqual(
+            map_key_action(2, 15),
+            DeckAction(ActionKind.NEXT_CAMERA),
+        )
+        self.assertEqual(
+            map_key_action(3, 15),
+            DeckAction(ActionKind.TOGGLE_SAVE),
+        )
+        for preset, key in enumerate(preset_keys, start=1):
+            self.assertEqual(
+                map_key_action(key, 15),
+                DeckAction(ActionKind.PRESET, preset),
+            )
+        self.assertEqual(key_layout(6)[0][0], "previous")
+
+    def test_original_v2_status_lines(self):
+        telemetry = {"wb_mode": "Auto", "ae_mode": "Manual"}
+        camera = ("192.168.10.44", "tcp", 5678)
+        self.assertEqual(
+            status_key_lines(0, 1, 3, "Camera 192.168.10.44", camera, 18, 5, telemetry),
+            ["Cam 2/3", "Camera 192", ".168.10.44"],
+        )
+        self.assertEqual(
+            status_key_lines(5, 1, 3, "Camera", camera, 18, 5, telemetry),
+            ["PT 18", "Zoom 5"],
+        )
+        bottom = status_key_lines(
+            10,
+            1,
+            3,
+            "Camera",
+            camera,
+            18,
+            5,
+            telemetry,
+        )
+        self.assertEqual(bottom, ["192.168.10", ".44", "WB Auto", "AE Manual"])
+
+    def test_ptzpad_speed_branches_refresh_deck(self):
+        source = Path(__file__).parents[1].joinpath("ptzpad.py").read_text()
+        self.assertIn("max_speed = min(max_speed + 1", source)
+        self.assertIn("max_speed = max(max_speed - 1", source)
+        self.assertIn("zoom_speed = min(zoom_speed + 1", source)
+        self.assertIn("zoom_speed = max(zoom_speed - 1", source)
+        self.assertGreaterEqual(source.count("_update_streamdeck()"), 7)
 
     def test_telemetry_switch_does_not_commit_stale_poll(self):
         controller = StreamDeckController(queue.Queue())

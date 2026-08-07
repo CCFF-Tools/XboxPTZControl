@@ -331,9 +331,9 @@ def reload_config_if_changed():
     if new != CAMS:
         stop_all_motion(CAMS[cur]); CAMS = new; cur = min(cur, len(CAMS) - 1); reset_input_state(); status_display.camera_active(cur, CAMS[cur][0])
     CAMERA_NAMES = [c.get("name") or c["host"] for c in cfg["cameras"]]
-    if _streamdeck:
-        _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed, CAMS[cur])
     max_speed, deadzone, zoom_speed = cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]
+    if _streamdeck:
+        _update_streamdeck()
     if _streamdeck:
         _streamdeck.configure(**cfg.get("streamdeck", {}))
 
@@ -526,10 +526,23 @@ def process_streamdeck_actions() -> None:
                 if sent and label == "preset-set" and _streamdeck:
                     _streamdeck.capture_thumbnail(CAMS[cur], action.preset)
         if _streamdeck:
-            _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed, CAMS[cur])
+            _update_streamdeck()
 
 
-_streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed, CAMS[cur])
+def _update_streamdeck():
+    if _streamdeck and CAMS:
+        _streamdeck.update(
+            cur,
+            _camera_label(cur),
+            len(CAMS),
+            _preset_save_armed,
+            CAMS[cur],
+            max_speed,
+            zoom_speed,
+        )
+
+
+_update_streamdeck()
 js = wait_for_joystick()
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
@@ -558,7 +571,7 @@ while running:
         print(">> Control switched to CAM", cur + 1, CAMS[cur][0])
         status_display.camera_active(cur, CAMS[cur][0])
         if _streamdeck:
-            _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed, CAMS[cur])
+            _update_streamdeck()
 
     # Adjust max speed / deadzone with D-pad.  SDL exposes the Xbox D-pad as
     # a hat on some drivers and as buttons on others (notably HIDAPI), so
@@ -577,10 +590,12 @@ while running:
     })
     if hat_y == 1:
         max_speed = min(max_speed + 1, MAX_SPEED)
+        _update_streamdeck()
         time.sleep(0.25)
         print(">> MAX_SPEED", max_speed)
     elif hat_y == -1:
         max_speed = max(max_speed - 1, 1)
+        _update_streamdeck()
         time.sleep(0.25)
         print(">> MAX_SPEED", max_speed)
 
@@ -596,9 +611,11 @@ while running:
     # adjust zoom speed with RB (increase) / LB (decrease) bumpers
     if "RB" in edges:
         zoom_speed = min(zoom_speed + 1, MAX_ZOOM_SPEED)
+        _update_streamdeck()
         print(">> ZOOM_SPEED", zoom_speed)
     elif "LB" in edges:
         zoom_speed = max(zoom_speed - 1, 0x00)
+        _update_streamdeck()
         print(">> ZOOM_SPEED", zoom_speed)
 
     cam = CAMS[cur]
