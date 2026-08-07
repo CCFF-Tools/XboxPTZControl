@@ -2,6 +2,7 @@ import queue
 import json
 import sys
 import types
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -11,6 +12,7 @@ from streamdeck_control import (
     DeckAction,
     StreamDeckController,
     ThumbnailStore,
+    camera_label_lines,
     map_key_action,
     preset_recall_packet,
     preset_set_packet,
@@ -111,12 +113,6 @@ class StreamDeckControlTests(unittest.TestCase):
         self.assertLess(apt_package, pip_fallback)
         self.assertIn("apt-cache show python3-elgato-streamdeck", source)
 
-    def test_renderer_uses_native_image_size(self):
-        source = Path(__file__).parents[1].joinpath("streamdeck_control.py").read_text()
-        self.assertIn("native_image.size", source)
-        self.assertNotIn('size["width"]', source)
-        self.assertNotIn('size["height"]', source)
-
     def test_renderer_supports_legacy_pilhelper_api(self):
         try:
             from PIL import Image
@@ -155,6 +151,12 @@ class StreamDeckControlTests(unittest.TestCase):
         self.assertIsNotNone(controller.snapshot()["last_render_at"])
         self.assertIsNone(controller.snapshot()["last_error"])
 
+    def test_renderer_uses_native_image_size(self):
+        source = Path(__file__).parents[1].joinpath("streamdeck_control.py").read_text()
+        self.assertIn("native_image.size", source)
+        self.assertNotIn('size["width"]', source)
+        self.assertNotIn('size["height"]', source)
+
     def test_snapshot_validation_and_safe_thumbnail_path(self):
         from streamdeck_control import ThumbnailStore, validate_snapshot
         jpeg = b"\xff\xd8" + b"x" * 20 + b"\xff\xd9"
@@ -165,6 +167,53 @@ class StreamDeckControlTests(unittest.TestCase):
         self.assertNotIn("..", path.name)
         store = ThumbnailStore("/tmp/ptz-thumb-test")
         self.assertNotEqual(store.path(("cam", "tcp", 1), 1), store.path(("cam", "tcp", 2), 1))
+
+    def test_thumbnail_reservation_invalidates_older_capture(self):
+        class Response:
+            headers = {"Content-Type": "image/jpeg"}
+
+            def __init__(self, payload):
+                self.payload = payload
+
+            def read(self, _):
+                return self.payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        class Opener:
+            def __init__(self, payload):
+                self.payload = payload
+                self.request = None
+
+            def open(self, request, timeout):
+                self.request = request
+                return Response(self.payload)
+
+        old = b"\xff\xd8" + b"old-image-data" * 2 + b"\xff\xd9"
+        new = b"\xff\xd8" + b"new-image-data" * 2 + b"\xff\xd9"
+        with tempfile.TemporaryDirectory() as root:
+            store = ThumbnailStore(root)
+            target = store.path(("cam", "tcp", 1), 1)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(old)
+            opener = Opener(new)
+            with patch("streamdeck_control.build_opener", return_value=opener):
+                first = store.reserve(("cam", "tcp", 1), 1)
+                second = store.reserve(("cam", "tcp", 1), 1)
+                store.capture(("cam", "tcp", 1), 1, reservation=first)
+                self.assertEqual(target.read_bytes(), old)
+                store.capture(("cam", "tcp", 1), 1, reservation=second)
+            self.assertEqual(target.read_bytes(), new)
+            self.assertIn("ptzpad_ts=", opener.request.full_url)
+            self.assertEqual(
+                opener.request.headers["Cache-control"],
+                "no-cache, no-store, max-age=0",
+            )
+            self.assertEqual(opener.request.headers["Pragma"], "no-cache")
 
     def test_telemetry_worker_wiring_and_render_surface(self):
         from unittest.mock import patch
@@ -183,6 +232,13 @@ class StreamDeckControlTests(unittest.TestCase):
         self.assertEqual(telemetry_mode("ae_mode", "0a"), "SAE")
         self.assertEqual(telemetry_mode("ae_mode", "0d"), "Bright")
         self.assertEqual(telemetry_mode("ae_mode", "ff"), "ff")
+
+    def test_camera_label_layout_preserves_full_ipv4(self):
+        lines = camera_label_lines("192.168.10.44")
+        self.assertEqual("".join(lines), "192.168.10.44")
+        wrapped = camera_label_lines("A very long camera name")
+        self.assertLessEqual(len(wrapped), 2)
+        self.assertTrue(all(len(line) <= 10 for line in wrapped))
 
     def test_telemetry_switch_does_not_commit_stale_poll(self):
         controller = StreamDeckController(queue.Queue())

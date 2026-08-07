@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
@@ -58,27 +59,52 @@ def validate_snapshot(data: bytes, content_type: str = "") -> bytes:
 class ThumbnailStore:
     def __init__(self, root=None):
         self.root = Path(root or os.environ.get("PTZPAD_CACHE", "~/.cache/ptzpad/thumbnails")).expanduser()
+        self._lock = threading.Lock()
+        self._generations = {}
 
     def path(self, camera, preset):
         identity = tuple(camera[:3]) if isinstance(camera, tuple) else (str(camera), "tcp", 80)
         key = hashlib.sha256(repr(identity).encode()).hexdigest()[:20]
         return self.root / f"{key}-{int(preset)}.jpg"
 
-    def capture(self, camera, preset, timeout=1.5):
+    def reserve(self, camera, preset):
+        target = self.path(camera, preset)
+        with self._lock:
+            token = self._generations.get(target, 0) + 1
+            self._generations[target] = token
+        return target, token
+
+    def capture(self, camera, preset, timeout=1.5, reservation=None):
         host = camera[0] if isinstance(camera, tuple) else str(camera)
-        request = Request(f"http://{host}/snapshot.jpg", headers={"Accept": "image/jpeg,image/png"})
+        target, generation = reservation or self.reserve(camera, preset)
+        query = urlencode({"ptzpad_ts": time.time_ns()})
+        request = Request(
+            f"http://{host}/snapshot.jpg?{query}",
+            headers={
+                "Accept": "image/jpeg,image/png",
+                "Cache-Control": "no-cache, no-store, max-age=0",
+                "Pragma": "no-cache",
+            },
+        )
+
         class NoRedirect(HTTPRedirectHandler):
             def redirect_request(self, req, fp, code, msg, headers, newurl):
                 raise ValueError("snapshot redirect rejected")
+
         with build_opener(NoRedirect).open(request, timeout=timeout) as response:
-            data = validate_snapshot(response.read(2 * 1024 * 1024 + 1), response.headers.get("Content-Type", ""))
-        target = self.path(camera, preset)
+            data = validate_snapshot(
+                response.read(2 * 1024 * 1024 + 1),
+                response.headers.get("Content-Type", ""),
+            )
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd, temp = tempfile.mkstemp(prefix=".snapshot-", dir=str(target.parent))
         try:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(data)
-            os.replace(temp, target)
+            with self._lock:
+                if self._generations.get(target) != generation:
+                    return target
+                os.replace(temp, target)
         finally:
             try: os.unlink(temp)
             except FileNotFoundError: pass
@@ -102,6 +128,14 @@ def telemetry_mode(label: str, raw: str) -> str:
         "ae_mode": {"00": "Auto", "03": "Manual", "0a": "SAE", "0b": "AAE", "0d": "Bright"},
     }
     return maps.get(label, {}).get(raw.lower(), raw)
+
+
+def camera_label_lines(name: str, max_chars: int = 10) -> list[str]:
+    """Fit camera names/IPs into at most two key-display lines."""
+    text = str(name or "Camera")
+    if len(text) <= max_chars:
+        return [text]
+    return [text[:max_chars], text[max_chars : max_chars * 2]]
 
 
 WB_INQUIRY = b"\x81\x09\x04\x35\xff"
@@ -210,11 +244,13 @@ class StreamDeckController:
         """Capture asynchronously; network failures never affect controls."""
         with self._lock:
             self._camera_host = camera[0] if isinstance(camera, tuple) else str(camera)
-        threading.Thread(target=self._capture_thumbnail, args=(camera, preset), daemon=True).start()
+        reservation = self._thumbnails.reserve(camera, preset)
+        threading.Thread(target=self._capture_thumbnail, args=(camera, preset, reservation), daemon=True).start()
 
-    def _capture_thumbnail(self, camera, preset):
+    def _capture_thumbnail(self, camera, preset, reservation):
         try:
-            self._thumbnails.capture(camera, preset)
+            time.sleep(0.4)
+            self._thumbnails.capture(camera, preset, reservation=reservation)
             self._render()
         except Exception as exc:
             self._record_error("thumbnail: " + str(exc))
@@ -456,12 +492,30 @@ class StreamDeckController:
                     label = f"< {idx + 1}/{total}"
                 elif key == 1:
                     label = f"{idx + 1}/{total} >"
-                draw.text((4, height // 3), label, fill="white", font=font)
                 if key == 2:
-                    draw.text((4, height // 2 + 8), name[:12], fill="white", font=font)
+                    draw.text((4, 4), label, fill="white", font=font)
+                    lines = camera_label_lines(name)
+                    for line_no, line in enumerate(lines):
+                        draw.text(
+                            (4, 20 + line_no * 10),
+                            line,
+                            fill="white",
+                            font=font,
+                        )
                     with self._lock:
                         telemetry = dict(self._telemetry)
-                    draw.text((4, height - 12), f"WB {telemetry.get('wb_mode','-')} AE {telemetry.get('ae_mode','-')}", fill="white", font=font)
+                    status = (
+                        f"WB {telemetry.get('wb_mode', '-')} "
+                        f"AE {telemetry.get('ae_mode', '-')}"
+                    )
+                    draw.text(
+                        (4, height - 12),
+                        status,
+                        fill="white",
+                        font=font,
+                    )
+                else:
+                    draw.text((4, height // 3), label, fill="white", font=font)
                 deck.set_key_image(key, native(deck, native_image))
             with self._lock:
                 self._last_render_at = time.time()
