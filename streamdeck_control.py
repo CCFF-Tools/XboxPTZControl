@@ -28,12 +28,23 @@ class ActionKind(str, Enum):
 def key_layout(key_count: int) -> dict[int, tuple[str, int | None]]:
     """Return semantic key mapping; Original V2 reserves its left column."""
     if key_count == 15:
-        preset_keys = [4, 6, 7, 8, 9, 11, 12, 13, 14]
-        return {0: ("status", None), 5: ("status", None), 10: ("status", None),
-                1: ("previous", None), 2: ("next", None), 3: ("save", None),
-                **{key: ("preset", index + 1) for index, key in enumerate(preset_keys)}}
-    return {0: ("previous", None), 1: ("next", None), 2: ("save", None),
-            **{key: ("preset", key - 2) for key in range(3, key_count)}}
+        preset_keys = [1, 2, 4, 6, 7, 8, 9, 11, 12, 13, 14]
+        return {
+            0: ("status_next", None),
+            5: ("status", None),
+            10: ("status", None),
+            3: ("save", None),
+            **{
+                key: ("preset", index + 1)
+                for index, key in enumerate(preset_keys)
+            },
+        }
+    return {
+        0: ("previous", None),
+        1: ("next", None),
+        2: ("save", None),
+        **{key: ("preset", key - 2) for key in range(3, key_count)},
+    }
 
 
 @dataclass(frozen=True)
@@ -547,7 +558,7 @@ class StreamDeckController:
                         draw = ImageDraw.Draw(native_image)
                     except Exception as exc:
                         self._record_error("thumbnail: " + str(exc))
-                if kind == "status":
+                if kind in ("status", "status_next"):
                     lines = status_key_lines(
                         key,
                         idx,
@@ -603,6 +614,8 @@ class StreamDeckController:
 def map_key_action(key: int, key_count: int) -> DeckAction | None:
     """Pure key mapping helper used by tests and callback implementations."""
     kind, preset = key_layout(key_count).get(key, ("none", None))
+    if kind == "status_next":
+        return DeckAction(ActionKind.NEXT_CAMERA)
     if kind == "previous":
         return DeckAction(ActionKind.PREVIOUS_CAMERA)
     if kind == "next":

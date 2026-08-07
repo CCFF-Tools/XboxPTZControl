@@ -69,11 +69,11 @@ The first detected visual deck is used. Target a model with at least four keys (
 
 | Keys | Action |
 |---|---|
-| 0 (top-left) | Selected camera index and name |
+| 0 (top-left) | Selected camera index/name; press to cycle to the next camera |
 | 5 (middle-left) | Live pan/tilt and zoom speeds |
 | 10 (bottom-left) | Camera address, white balance, and exposure mode |
-| 1 / 2 / 3 | Previous camera / next camera / toggle **Save** mode |
-| 4, 6–9, 11–14 | Presets 1–9 (normal press recalls; Save armed stores then disarms) |
+| 3 | Toggle **Save** mode |
+| 1, 2, 4, 6–9, 11–14 | Presets 1–11 (normal press recalls; Save armed stores then disarms) |
 
 Other supported deck sizes keep the legacy adaptive layout: keys 0, 1, and 2 are Previous, Next, and Save; keys 3 onward are presets.
 
