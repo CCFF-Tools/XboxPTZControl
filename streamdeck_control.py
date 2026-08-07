@@ -28,12 +28,12 @@ class ActionKind(str, Enum):
 def key_layout(key_count: int) -> dict[int, tuple[str, int | None]]:
     """Return semantic key mapping; Original V2 reserves its left column."""
     if key_count == 15:
-        preset_keys = [1, 2, 4, 6, 7, 8, 9, 11, 12, 13, 14]
+        preset_keys = [1, 2, 3, 6, 7, 8, 9, 11, 12, 13, 14]
         return {
             0: ("status_next", None),
             5: ("status", None),
             10: ("status", None),
-            3: ("save", None),
+            4: ("save", None),
             **{
                 key: ("preset", index + 1)
                 for index, key in enumerate(preset_keys)

@@ -291,14 +291,14 @@ class StreamDeckControlTests(unittest.TestCase):
     def test_original_v2_layout_and_legacy_mapping(self):
         layout = key_layout(15)
         self.assertEqual([key for key, value in layout.items() if value[0] in ("status", "status_next")], [0, 5, 10])
-        preset_keys = [1, 2, 4, 6, 7, 8, 9, 11, 12, 13, 14]
+        preset_keys = [1, 2, 3, 6, 7, 8, 9, 11, 12, 13, 14]
         self.assertEqual(
             [layout[key][1] for key in preset_keys],
             list(range(1, 12)),
         )
         self.assertEqual(map_key_action(0, 15).kind, ActionKind.NEXT_CAMERA)
         self.assertEqual(
-            map_key_action(3, 15),
+            map_key_action(4, 15),
             DeckAction(ActionKind.TOGGLE_SAVE),
         )
         self.assertIsNone(map_key_action(5, 15))
