@@ -10,6 +10,7 @@ from streamdeck_control import (
     ActionKind,
     DeckAction,
     StreamDeckController,
+    ThumbnailStore,
     map_key_action,
     preset_recall_packet,
     preset_set_packet,
@@ -153,6 +154,45 @@ class StreamDeckControlTests(unittest.TestCase):
         self.assertEqual(len(deck.images), 4)
         self.assertIsNotNone(controller.snapshot()["last_render_at"])
         self.assertIsNone(controller.snapshot()["last_error"])
+
+    def test_snapshot_validation_and_safe_thumbnail_path(self):
+        from streamdeck_control import ThumbnailStore, validate_snapshot
+        jpeg = b"\xff\xd8" + b"x" * 20 + b"\xff\xd9"
+        self.assertEqual(validate_snapshot(jpeg), jpeg)
+        with self.assertRaises(ValueError):
+            validate_snapshot(b"not-an-image")
+        path = ThumbnailStore("/tmp/ptz-thumb-test").path(("camera/../bad", "tcp", 1), 2)
+        self.assertNotIn("..", path.name)
+        store = ThumbnailStore("/tmp/ptz-thumb-test")
+        self.assertNotEqual(store.path(("cam", "tcp", 1), 1), store.path(("cam", "tcp", 2), 1))
+
+    def test_telemetry_worker_wiring_and_render_surface(self):
+        from unittest.mock import patch
+        controller = StreamDeckController(queue.Queue())
+        controller.set_telemetry_camera(("camera", "tcp", 5678))
+        with patch("streamdeck_control.poll_visca_telemetry", return_value={"wb_mode": "Auto", "ae_mode": "SAE"}):
+            controller._poll_telemetry_once()
+        self.assertEqual(controller.snapshot()["telemetry"]["wb_mode"], "Auto")
+        controller.close()
+
+    def test_telemetry_mode_labels(self):
+        from streamdeck_control import telemetry_mode
+        self.assertEqual(telemetry_mode("wb_mode", "00"), "Auto")
+        self.assertEqual(telemetry_mode("wb_mode", "05"), "Manual")
+        self.assertEqual(telemetry_mode("wb_mode", "20"), "ColorTemp")
+        self.assertEqual(telemetry_mode("ae_mode", "0a"), "SAE")
+        self.assertEqual(telemetry_mode("ae_mode", "0d"), "Bright")
+        self.assertEqual(telemetry_mode("ae_mode", "ff"), "ff")
+
+    def test_telemetry_switch_does_not_commit_stale_poll(self):
+        controller = StreamDeckController(queue.Queue())
+        controller.set_telemetry_camera(("a", "tcp", 1))
+        def stale_poll(camera):
+            controller.set_telemetry_camera(("b", "tcp", 2))
+            return {"wb_mode": "Auto"}
+        with patch("streamdeck_control.poll_visca_telemetry", side_effect=stale_poll):
+            controller._poll_telemetry_once()
+        self.assertEqual(controller.snapshot()["telemetry"], {})
 
 
 if __name__ == "__main__":

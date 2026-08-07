@@ -332,7 +332,7 @@ def reload_config_if_changed():
         stop_all_motion(CAMS[cur]); CAMS = new; cur = min(cur, len(CAMS) - 1); reset_input_state(); status_display.camera_active(cur, CAMS[cur][0])
     CAMERA_NAMES = [c.get("name") or c["host"] for c in cfg["cameras"]]
     if _streamdeck:
-        _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
+        _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed, CAMS[cur])
     max_speed, deadzone, zoom_speed = cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]
     if _streamdeck:
         _streamdeck.configure(**cfg.get("streamdeck", {}))
@@ -369,11 +369,13 @@ def send(pkt, cam, label: str | None = None):
                 s.connect((ip, port))
                 s.sendall(pkt)
         camera_state["last_success"] = time.time()
+        return True
     except OSError as exc:
         camera_state["last_error"] = time.time()
         print(f">> Socket error to {ip}:{port}: {exc}")
         status_display.error("Socket send failed")
         publish_state(force=True)
+        return False
 
 def visca_move(x, y, cam):
     """Drive pan/tilt according to joystick input."""
@@ -520,12 +522,14 @@ def process_streamdeck_actions() -> None:
         else:
             _preset_save_armed, packet, label = resolve_deck_action(action, _preset_save_armed)
             if packet is not None and label is not None and CAMS:
-                send(packet, CAMS[cur], label)
+                sent = send(packet, CAMS[cur], label)
+                if sent and label == "preset-set" and _streamdeck:
+                    _streamdeck.capture_thumbnail(CAMS[cur], action.preset)
         if _streamdeck:
-            _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
+            _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed, CAMS[cur])
 
 
-_streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
+_streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed, CAMS[cur])
 js = wait_for_joystick()
 print(">>> PTZ bridge running.  Cameras:", ", ".join(ip for ip, _, _ in CAMS))
 while running:
@@ -554,7 +558,7 @@ while running:
         print(">> Control switched to CAM", cur + 1, CAMS[cur][0])
         status_display.camera_active(cur, CAMS[cur][0])
         if _streamdeck:
-            _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed)
+            _streamdeck.update(cur, _camera_label(cur), len(CAMS), _preset_save_armed, CAMS[cur])
 
     # Adjust max speed / deadzone with D-pad.  SDL exposes the Xbox D-pad as
     # a hat on some drivers and as buttons on others (notably HIDAPI), so

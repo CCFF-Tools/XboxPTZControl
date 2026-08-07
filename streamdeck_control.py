@@ -3,12 +3,18 @@
 The bridge remains usable when the package, USB device, or Pillow is absent.
 HID callbacks only enqueue :class:`DeckAction` values; callers own state changes.
 """
-from dataclasses import dataclass
-from enum import Enum
+import hashlib
 import logging
+import os
 import queue
+import socket
+import tempfile
 import threading
 import time
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 class ActionKind(str, Enum):
@@ -36,6 +42,98 @@ def preset_recall_packet(preset: int) -> bytes:
     if not 1 <= int(preset) <= 99:
         raise ValueError("preset must be between 1 and 99")
     return bytes((0x81, 0x01, 0x04, 0x3F, 0x02, int(preset), 0xFF))
+
+
+def validate_snapshot(data: bytes, content_type: str = "") -> bytes:
+    """Accept only bounded JPEG/PNG snapshot payloads."""
+    if len(data) > 2 * 1024 * 1024 or len(data) < 16:
+        raise ValueError("snapshot size rejected")
+    if data[:2] == b"\xff\xd8" and data[-2:] == b"\xff\xd9":
+        return data
+    if data.startswith(b"\x89PNG\r\n\x1a\n") and data.endswith(b"IEND\xaeB`\x82"):
+        return data
+    raise ValueError("snapshot type rejected")
+
+
+class ThumbnailStore:
+    def __init__(self, root=None):
+        self.root = Path(root or os.environ.get("PTZPAD_CACHE", "~/.cache/ptzpad/thumbnails")).expanduser()
+
+    def path(self, camera, preset):
+        identity = tuple(camera[:3]) if isinstance(camera, tuple) else (str(camera), "tcp", 80)
+        key = hashlib.sha256(repr(identity).encode()).hexdigest()[:20]
+        return self.root / f"{key}-{int(preset)}.jpg"
+
+    def capture(self, camera, preset, timeout=1.5):
+        host = camera[0] if isinstance(camera, tuple) else str(camera)
+        request = Request(f"http://{host}/snapshot.jpg", headers={"Accept": "image/jpeg,image/png"})
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                raise ValueError("snapshot redirect rejected")
+        with build_opener(NoRedirect).open(request, timeout=timeout) as response:
+            data = validate_snapshot(response.read(2 * 1024 * 1024 + 1), response.headers.get("Content-Type", ""))
+        target = self.path(camera, preset)
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd, temp = tempfile.mkstemp(prefix=".snapshot-", dir=str(target.parent))
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+            os.replace(temp, target)
+        finally:
+            try: os.unlink(temp)
+            except FileNotFoundError: pass
+        return target
+
+
+def parse_visca_telemetry(response: bytes) -> dict:
+    """Parse common VISCA inquiry payloads when cameras support them."""
+    if not response or response[0] & 0xF0 != 0x90:
+        return {}
+    values = {}
+    if len(response) >= 5 and response[1] == 0x50:
+        raw = response[2:-1]
+        values["value"] = raw.hex()
+    return values
+
+
+def telemetry_mode(label: str, raw: str) -> str:
+    maps = {
+        "wb_mode": {"00": "Auto", "01": "Indoor", "02": "Outdoor", "03": "OnePush", "05": "Manual", "20": "ColorTemp"},
+        "ae_mode": {"00": "Auto", "03": "Manual", "0a": "SAE", "0b": "AAE", "0d": "Bright"},
+    }
+    return maps.get(label, {}).get(raw.lower(), raw)
+
+
+WB_INQUIRY = b"\x81\x09\x04\x35\xff"
+AE_INQUIRY = b"\x81\x09\x04\x39\xff"
+
+
+def inquiry_packet(name: str) -> bytes:
+    if name == "wb_mode":
+        return WB_INQUIRY
+    if name == "ae_mode":
+        return AE_INQUIRY
+    raise ValueError("unsupported inquiry")
+
+
+def poll_visca_telemetry(camera, timeout=0.25) -> dict:
+    """Best-effort TCP inquiries; UDP cameras are intentionally skipped."""
+    host, proto, port = camera
+    if proto.lower() != "tcp":
+        return {}
+    result = {}
+    try:
+        for name in ("wb_mode", "ae_mode"):
+            with socket.create_connection((host, port), timeout=timeout) as sock:
+                sock.settimeout(timeout)
+                sock.sendall(inquiry_packet(name))
+                response = sock.recv(64)
+            parsed = parse_visca_telemetry(response)
+            if parsed:
+                result[name] = telemetry_mode(name, parsed.get("value", ""))
+    except OSError:
+        return result
+    return result
 
 
 def resolve_deck_action(action: DeckAction, armed: bool) -> tuple[bool, bytes | None, str | None]:
@@ -75,6 +173,12 @@ class StreamDeckController:
         self._last_event_at = None
         self._device = ""
         self._key_count = 0
+        self._camera_host = None
+        self._thumbnails = ThumbnailStore()
+        self._telemetry = {}
+        self._telemetry_camera = None
+        self._telemetry_thread = None
+        self.telemetry_interval = 5.0
 
     def configure(self, enabled=True, brightness=35):
         with self._device_lock:
@@ -99,7 +203,21 @@ class StreamDeckController:
                     "key_count": self._key_count, "brightness": self._brightness,
                     "last_error": self._last_error, "last_render_at": self._last_render_at,
                     "last_event_at": self._last_event_at, "save_armed": self._armed,
-                    "camera_index": self._camera_index, "camera_name": self._camera_name}
+                    "camera_index": self._camera_index, "camera_name": self._camera_name,
+                    "telemetry": dict(self._telemetry)}
+
+    def capture_thumbnail(self, camera, preset):
+        """Capture asynchronously; network failures never affect controls."""
+        with self._lock:
+            self._camera_host = camera[0] if isinstance(camera, tuple) else str(camera)
+        threading.Thread(target=self._capture_thumbnail, args=(camera, preset), daemon=True).start()
+
+    def _capture_thumbnail(self, camera, preset):
+        try:
+            self._thumbnails.capture(camera, preset)
+            self._render()
+        except Exception as exc:
+            self._record_error("thumbnail: " + str(exc))
 
     def _record_error(self, message):
         with self._lock:
@@ -122,12 +240,47 @@ class StreamDeckController:
             self._thread = threading.Thread(target=self._run, name="streamdeck", daemon=True)
             self._thread.start()
 
-    def update(self, camera_index: int, camera_name: str, camera_count: int, armed: bool) -> None:
+    def set_telemetry_camera(self, camera):
+        with self._lock:
+            if camera == self._telemetry_camera:
+                return
+            self._telemetry_camera = camera
+            self._telemetry = {}
+        if self._telemetry_thread is None:
+            self._telemetry_thread = threading.Thread(target=self._telemetry_loop, daemon=True)
+            self._telemetry_thread.start()
+
+    def _poll_telemetry_once(self):
+        with self._lock:
+            camera = self._telemetry_camera
+        if not camera:
+            return
+        values = poll_visca_telemetry(camera)
+        with self._lock:
+            if camera != self._telemetry_camera:
+                return
+            changed = values != self._telemetry
+            self._telemetry = values
+        if changed:
+            self._render()
+
+    def _telemetry_loop(self):
+        while not self._stop.wait(self.telemetry_interval):
+            with self._lock:
+                camera = self._telemetry_camera
+            if not camera:
+                continue
+            self._poll_telemetry_once()
+
+    def update(self, camera_index: int, camera_name: str, camera_count: int, armed: bool, camera_host=None) -> None:
         with self._lock:
             self._camera_index = camera_index
             self._camera_name = camera_name
             self._camera_count = max(1, camera_count)
             self._armed = armed
+            self._camera_host = camera_host
+        if isinstance(camera_host, tuple):
+            self.set_telemetry_camera(camera_host)
         with self._device_lock:
             self._render()
 
@@ -135,6 +288,8 @@ class StreamDeckController:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=2)
+        if self._telemetry_thread:
+            self._telemetry_thread.join(timeout=2)
         with self._device_lock:
             self._close_deck_locked()
 
@@ -284,6 +439,18 @@ class StreamDeckController:
                 width, height = native_image.size
                 draw = ImageDraw.Draw(native_image)
                 draw.rectangle((0, 0, width, height), fill=(120, 40, 20) if key == 2 and armed else (20, 20, 20))
+                thumbnail = None
+                if key >= 3 and self._camera_host:
+                    thumbnail = self._thumbnails.path(self._camera_host, key - 2)
+                if thumbnail and thumbnail.exists():
+                    try:
+                        from PIL import Image
+                        thumb = Image.open(thumbnail).convert(native_image.mode)
+                        thumb.thumbnail((width, height))
+                        native_image.paste(thumb, ((width - thumb.width) // 2, (height - thumb.height) // 2))
+                        draw = ImageDraw.Draw(native_image)
+                    except Exception as exc:
+                        self._record_error("thumbnail: " + str(exc))
                 label = labels[key] if key < len(labels) else ""
                 if key == 0:
                     label = f"< {idx + 1}/{total}"
@@ -292,6 +459,9 @@ class StreamDeckController:
                 draw.text((4, height // 3), label, fill="white", font=font)
                 if key == 2:
                     draw.text((4, height // 2 + 8), name[:12], fill="white", font=font)
+                    with self._lock:
+                        telemetry = dict(self._telemetry)
+                    draw.text((4, height - 12), f"WB {telemetry.get('wb_mode','-')} AE {telemetry.get('ae_mode','-')}", fill="white", font=font)
                 deck.set_key_image(key, native(deck, native_image))
             with self._lock:
                 self._last_render_at = time.time()
