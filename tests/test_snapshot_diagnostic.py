@@ -37,12 +37,22 @@ class SnapshotDiagnosticTests(unittest.TestCase):
         data = b"\xff\xd8" + b"snapshot-data" * 2 + b"\xff\xd9"
         opener = Opener(data)
         with tempfile.TemporaryDirectory() as root:
-            duplicate = snapshot_diagnostic.run("camera", 2, 0, Path(root), opener=opener, sleeper=lambda _: None)
+            duplicate = snapshot_diagnostic.run(
+                "camera",
+                2,
+                0,
+                Path(root),
+                opener=opener,
+                sleeper=lambda _: None,
+            )
             self.assertTrue(duplicate)
             self.assertTrue((Path(root) / "frame-001.jpg").exists())
             self.assertTrue((Path(root) / "index.html").exists())
         self.assertNotEqual(opener.requests[0].full_url, opener.requests[1].full_url)
-        self.assertEqual(opener.requests[0].headers["Cache-control"], "no-cache, no-store, max-age=0")
+        self.assertEqual(
+            opener.requests[0].headers["Cache-control"],
+            "no-cache, no-store, max-age=0",
+        )
         self.assertEqual(opener.requests[0].headers["Pragma"], "no-cache")
         self.assertIn("ptzpad_ts=", opener.requests[0].full_url)
 
@@ -53,17 +63,38 @@ class SnapshotDiagnosticTests(unittest.TestCase):
 
     def test_main_camera_selection_and_override(self):
         config = {"cameras": [{"host": "first"}, {"host": "second"}]}
-        with patch("snapshot_diagnostic.load_config", return_value=config), patch("snapshot_diagnostic.run") as capture:
-            self.assertEqual(snapshot_diagnostic.main(["--camera-index", "2", "--count", "3", "--interval", "1", "--output", "/tmp/out"]), 0)
+        with patch(
+            "snapshot_diagnostic.load_config", return_value=config
+        ), patch("snapshot_diagnostic.run") as capture:
+            result = snapshot_diagnostic.main(
+                [
+                    "--camera-index",
+                    "2",
+                    "--count",
+                    "3",
+                    "--interval",
+                    "1",
+                    "--output",
+                    "/tmp/out",
+                ]
+            )
+            self.assertEqual(result, 0)
             capture.assert_called_once_with("second", 3, 1.0, Path("/tmp/out"))
             capture.reset_mock()
             self.assertEqual(snapshot_diagnostic.main(["--camera", "override"]), 0)
             self.assertEqual(capture.call_args.args[0], "override")
 
     def test_override_skips_config_and_default_output_is_unique(self):
-        with patch("snapshot_diagnostic.load_config", side_effect=RuntimeError("no config")), patch("snapshot_diagnostic.run") as capture, patch("snapshot_diagnostic.tempfile.mkdtemp", return_value="/tmp/ptz-snapshot-unique"):
+        with patch(
+            "snapshot_diagnostic.load_config",
+            side_effect=RuntimeError("no config"),
+        ), patch("snapshot_diagnostic.run") as capture, patch(
+            "snapshot_diagnostic.tempfile.mkdtemp",
+            return_value="/tmp/ptz-snapshot-unique",
+        ):
             self.assertEqual(snapshot_diagnostic.main(["--camera", "override"]), 0)
             self.assertEqual(capture.call_args.args[3], Path("/tmp/ptz-snapshot-unique"))
 
 
-if __name__ == "__main__": unittest.main()
+if __name__ == "__main__":
+    unittest.main()

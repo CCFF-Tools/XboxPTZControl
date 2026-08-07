@@ -4,11 +4,11 @@ import argparse
 import hashlib
 import html
 import json
-import os
-from pathlib import Path
 import shlex
+import sys
 import tempfile
 import time
+from pathlib import Path
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from ptz_config import load_config
@@ -23,11 +23,18 @@ class _NoRedirect(HTTPRedirectHandler):
 def capture_frame(host, timeout=1.5, opener=None):
     request = Request(
         f"http://{host}/snapshot.jpg?ptzpad_ts={time.time_ns()}",
-        headers={"Accept": "image/jpeg,image/png", "Cache-Control": "no-cache, no-store, max-age=0", "Pragma": "no-cache"},
+        headers={
+            "Accept": "image/jpeg,image/png",
+            "Cache-Control": "no-cache, no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
     )
     client = opener or build_opener(_NoRedirect)
     with client.open(request, timeout=timeout) as response:
-        data = validate_snapshot(response.read(2 * 1024 * 1024 + 1), response.headers.get("Content-Type", ""))
+        data = validate_snapshot(
+            response.read(2 * 1024 * 1024 + 1),
+            response.headers.get("Content-Type", ""),
+        )
         return data, dict(response.headers.items())
 
 
@@ -44,13 +51,25 @@ def run(host, count, interval, output, opener=None, sleeper=time.sleep):
             json.dumps(headers, indent=2) + "\n", encoding="utf-8"
         )
         hashes.append(digest)
-        records.append({"frame": index, "file": path.name, "sha256": digest, "headers": headers})
+        records.append(
+            {
+                "frame": index,
+                "file": path.name,
+                "sha256": digest,
+                "headers": headers,
+            }
+        )
         print(f"frame {index}/{count}: {path} sha256={digest[:16]}")
         if index < count:
             sleeper(interval)
     (output / "index.html").write_text(_gallery(records), encoding="utf-8")
     duplicate = len(set(hashes)) < len(hashes)
-    print("WARN: duplicate snapshot hashes detected" if duplicate else "PASS: all snapshot hashes differ")
+    result = (
+        "WARN: duplicate snapshot hashes detected"
+        if duplicate
+        else "PASS: all snapshot hashes differ"
+    )
+    print(result)
     return duplicate
 
 
@@ -58,8 +77,15 @@ def _gallery(records):
     cards = []
     for record in records:
         label = html.escape(f"Frame {record['frame']} — {record['sha256']}")
-        cards.append(f'<figure><img src="{html.escape(record["file"])}" alt="{label}"><figcaption>{label}</figcaption></figure>')
-    return "<!doctype html><meta charset='utf-8'><title>PTZ snapshots</title><p>Change the camera scene during capture, then compare frames.</p>" + "".join(cards)
+        cards.append(
+            f'<figure><img src="{html.escape(record["file"])}" alt="{label}">'
+            f"<figcaption>{label}</figcaption></figure>"
+        )
+    introduction = (
+        "<!doctype html><meta charset='utf-8'><title>PTZ snapshots</title>"
+        "<p>Change the camera scene during capture, then compare frames.</p>"
+    )
+    return introduction + "".join(cards)
 
 
 def main(argv=None):
@@ -83,7 +109,7 @@ def main(argv=None):
     try:
         run(host, args.count, args.interval, output)
     except Exception as exc:
-        print(f"ERROR: {exc}", file=__import__("sys").stderr)
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     print(f"Gallery: {output / 'index.html'}")
     print(f"Serve with: python3 -m http.server --directory {shlex.quote(str(output))}")
