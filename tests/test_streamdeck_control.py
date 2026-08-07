@@ -1,7 +1,10 @@
 import queue
 import json
+import sys
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from streamdeck_control import (
     ActionKind,
@@ -106,6 +109,50 @@ class StreamDeckControlTests(unittest.TestCase):
         self.assertLess(import_check, apt_package)
         self.assertLess(apt_package, pip_fallback)
         self.assertIn("apt-cache show python3-elgato-streamdeck", source)
+
+    def test_renderer_uses_native_image_size(self):
+        source = Path(__file__).parents[1].joinpath("streamdeck_control.py").read_text()
+        self.assertIn("native_image.size", source)
+        self.assertNotIn('size["width"]', source)
+        self.assertNotIn('size["height"]', source)
+
+    def test_renderer_supports_legacy_pilhelper_api(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is unavailable in this environment")
+
+        class LegacyHelper:
+            @staticmethod
+            def create_image(deck):
+                return Image.new("RGBA", (64, 32))
+
+            @staticmethod
+            def to_native_format(deck, image):
+                return image.tobytes()
+
+        class FakeDeck:
+            def __init__(self):
+                self.images = []
+
+            def key_count(self):
+                return 4
+
+            def set_key_image(self, key, image):
+                self.images.append((key, image))
+
+        streamdeck_module = types.ModuleType("StreamDeck")
+        helpers_module = types.ModuleType("StreamDeck.ImageHelpers")
+        helpers_module.PILHelper = LegacyHelper
+        streamdeck_module.ImageHelpers = helpers_module
+        deck = FakeDeck()
+        controller = StreamDeckController(queue.Queue())
+        controller._deck = deck
+        with patch.dict(sys.modules, {"StreamDeck": streamdeck_module, "StreamDeck.ImageHelpers": helpers_module}):
+            controller._render()
+        self.assertEqual(len(deck.images), 4)
+        self.assertIsNotNone(controller.snapshot()["last_render_at"])
+        self.assertIsNone(controller.snapshot()["last_error"])
 
 
 if __name__ == "__main__":

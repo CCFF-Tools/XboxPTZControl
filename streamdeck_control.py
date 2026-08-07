@@ -268,18 +268,22 @@ class StreamDeckController:
         if deck is None:
             return
         try:
-            from PIL import Image, ImageDraw, ImageFont
+            from PIL import ImageDraw, ImageFont
             from StreamDeck.ImageHelpers import PILHelper
-            size = deck.key_image_format()
-            width, height = int(size["width"]), int(size["height"])
             font = ImageFont.load_default()
             with self._lock:
                 idx, name, total, armed = self._camera_index, self._camera_name, self._camera_count, self._armed
             labels = [f"< Cam", "Cam >", "SAVE" + ("*" if armed else "")]
             labels.extend(str(i) for i in range(1, max(1, int(deck.key_count()) - 2) + 1))
             for key in range(int(deck.key_count())):
-                image = Image.new("RGB", (width, height), (120, 40, 20) if key == 2 and armed else (20, 20, 20))
-                draw = ImageDraw.Draw(image)
+                create = getattr(PILHelper, "create_key_image", None)
+                native = getattr(PILHelper, "to_native_key_format", None)
+                if native is None:
+                    native = PILHelper.to_native_format
+                native_image = create(deck) if create is not None else PILHelper.create_image(deck)
+                width, height = native_image.size
+                draw = ImageDraw.Draw(native_image)
+                draw.rectangle((0, 0, width, height), fill=(120, 40, 20) if key == 2 and armed else (20, 20, 20))
                 label = labels[key] if key < len(labels) else ""
                 if key == 0:
                     label = f"< {idx + 1}/{total}"
@@ -288,16 +292,6 @@ class StreamDeckController:
                 draw.text((4, height // 3), label, fill="white", font=font)
                 if key == 2:
                     draw.text((4, height // 2 + 8), name[:12], fill="white", font=font)
-                create = getattr(PILHelper, "create_key_image", None)
-                native = getattr(PILHelper, "to_native_key_format", None)
-                if native is None:
-                    native = PILHelper.to_native_format
-                if create is not None:
-                    native_image = create(deck)
-                    native_image.paste(image)
-                else:
-                    native_image = PILHelper.create_image(deck)
-                    native_image.paste(image)
                 deck.set_key_image(key, native(deck, native_image))
             with self._lock:
                 self._last_render_at = time.time()
