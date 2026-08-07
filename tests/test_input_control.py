@@ -9,6 +9,7 @@ from input_control import (
     ZoomTriggerState,
     controller_layout,
     resolve_zoom_direction,
+    zoom_speed_for_trigger,
 )
 
 
@@ -21,11 +22,21 @@ class InputControlTests(unittest.TestCase):
     def test_active_trigger_continues(self):
         state = ZoomTriggerState(direction=1)
         self.assertEqual(resolve_zoom_direction(0.5, state), 1)
-        self.assertEqual(resolve_zoom_direction(0.5, state), 1)
+
+    def test_trigger_magnitude_ramps_zoom_speed(self):
+        self.assertEqual(zoom_speed_for_trigger(0.0, 7), 0)
+        self.assertEqual(zoom_speed_for_trigger(0.1, 7), 0)
+        values = [zoom_speed_for_trigger(value, 7) for value in (0.2, 0.5, 0.8, 1.0)]
+        self.assertEqual(values, sorted(values))
+        self.assertEqual(zoom_speed_for_trigger(0.2, 7), zoom_speed_for_trigger(-0.2, 7))
+        self.assertEqual(zoom_speed_for_trigger(1.0, 3), 3)
+        self.assertEqual(zoom_speed_for_trigger(1.0, 0), 0)
 
     def test_layouts_and_bumper_edges(self):
         self.assertEqual(controller_layout(12, 1), EVDEV_LAYOUT)
         self.assertEqual(controller_layout(15, 0), HIDAPI_LAYOUT)
+        self.assertEqual((EVDEV_LAYOUT.lb, EVDEV_LAYOUT.rb, EVDEV_LAYOUT.ls), (4, 5, 9))
+        self.assertEqual((HIDAPI_LAYOUT.lb, HIDAPI_LAYOUT.rb, HIDAPI_LAYOUT.ls), (9, 10, 7))
         edges = ButtonEdges()
         self.assertEqual(edges.rising({"RB": True}), {"RB"})
         self.assertEqual(edges.rising({"RB": True}), set())

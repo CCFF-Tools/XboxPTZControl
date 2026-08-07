@@ -124,8 +124,10 @@ For example, when using a software I2C overlay on GPIO 23/24 configured as bus 3
 | RB / LB | Increase / decrease zoom speed |
 
 Zoom speed value `0` (including the dashboard setting) is the slowest zoom
-speed; it does not disable zoom. Both TCP and UDP cameras receive a start packet only
-when the zoom direction changes, followed by a bounded three-packet stop burst
+speed; it does not disable zoom. Trigger depression ramps from slowest to the
+configured maximum, and changing depression reissues the active command. Both
+TCP and UDP cameras receive a start packet only when the zoom direction or
+speed changes, followed by a bounded three-packet stop burst
 when the trigger is released to tolerate packet loss.
 
 ## Customising after install

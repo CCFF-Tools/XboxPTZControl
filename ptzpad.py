@@ -62,6 +62,7 @@ from input_control import (
     ZoomTriggerState,
     controller_layout,
     resolve_zoom_direction,
+    zoom_speed_for_trigger,
 )
 
 try:
@@ -412,11 +413,12 @@ def visca_move(x, y, cam):
 def visca_stop(cam):
     send(b"\x81\x01\x06\x01\x00\x00\x03\x03\xFF", cam, "stop")
 
-def zoom(direction, cam):          # direction: 1 tele, -1 wide, 0 stop
+def zoom(direction, cam, speed=None):          # direction: 1 tele, -1 wide, 0 stop
+    speed = zoom_speed if speed is None else max(0, min(int(speed), MAX_ZOOM_SPEED))
     if direction > 0:
-        cmd = bytes([0x20 + zoom_speed])
+        cmd = bytes([0x20 + speed])
     elif direction < 0:
-        cmd = bytes([0x30 + zoom_speed])
+        cmd = bytes([0x30 + speed])
     else:
         cmd = b"\x00"
     send(b"\x81\x01\x04\x07" + cmd + b"\xFF", cam, "zoom")
@@ -646,6 +648,13 @@ while running:
         start_deadzone=ZOOM_START_DEADZONE,
         release_loops=ZOOM_STOP_LOOPS,
     )
+    trigger_speed = (
+        None
+        if abs(zoom_val) <= ZOOM_START_DEADZONE
+        else zoom_speed_for_trigger(
+            zoom_val, zoom_speed, deadzone=ZOOM_START_DEADZONE
+        )
+    )
     _input_telemetry.update({
         "lt": round(lt, 3),
         "rt": round(rt, 3),
@@ -654,9 +663,19 @@ while running:
         "protocol": cam[1],
     })
 
-    zoom_cmd = next_zoom_command(zoom_dir, zoom_state, stop_packets=ZOOM_STOP_PACKETS)
+    zoom_cmd = next_zoom_command(
+        zoom_dir,
+        zoom_state,
+        stop_packets=ZOOM_STOP_PACKETS,
+        requested_speed=trigger_speed,
+    )
     if zoom_cmd is not None:
-        zoom(zoom_cmd, cam)
+        # Release/trigger grace carries no speed update; directional starts
+        # always have a numeric speed, while stops ignore the value.
+        command_speed = trigger_speed
+        if command_speed is None and zoom_cmd != 0:
+            command_speed = zoom_state.last_speed if zoom_state.last_speed >= 0 else 0
+        zoom(zoom_cmd, cam, command_speed)
 
     if DEBUG_INPUT:
         now = time.time()

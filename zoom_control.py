@@ -12,12 +12,14 @@ class ZoomCommandState:
     """State carried between input-loop iterations."""
 
     last_direction: int = 0
+    last_speed: int = -1
     stop_retries_remaining: int = 0
 
     def reset(self) -> None:
         """Forget command history, such as after switching cameras."""
 
         self.last_direction = 0
+        self.last_speed = -1
         self.stop_retries_remaining = 0
 
 
@@ -26,6 +28,7 @@ def next_zoom_command(
     state: ZoomCommandState,
     *,
     stop_packets: int = 3,
+    requested_speed: int | None = None,
 ) -> int | None:
     """Return a zoom command to send this iteration, or ``None``.
 
@@ -36,9 +39,12 @@ def next_zoom_command(
     direction = 1 if requested_direction > 0 else -1 if requested_direction < 0 else 0
     command = None
 
-    if direction != state.last_direction:
+    speed_changed = requested_speed is not None and requested_speed != state.last_speed
+    if direction != state.last_direction or (direction != 0 and speed_changed):
         command = direction
         state.last_direction = direction
+        if requested_speed is not None:
+            state.last_speed = requested_speed
         if direction == 0:
             state.stop_retries_remaining = max(0, stop_packets - 1)
         else:
@@ -46,4 +52,6 @@ def next_zoom_command(
     elif direction == 0 and state.stop_retries_remaining > 0:
         command = 0
         state.stop_retries_remaining -= 1
+    if requested_speed is not None and direction == 0:
+        state.last_speed = requested_speed
     return command

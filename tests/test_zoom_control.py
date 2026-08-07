@@ -15,6 +15,18 @@ class ZoomCommandTests(unittest.TestCase):
         self.assertIsNone(next_zoom_command(1, state))
         self.assertEqual(next_zoom_command(-1, state), -1)
 
+    def test_speed_change_reissues_active_command(self):
+        state = ZoomCommandState()
+        self.assertEqual(next_zoom_command(1, state, requested_speed=1), 1)
+        self.assertIsNone(next_zoom_command(1, state, requested_speed=1))
+        self.assertEqual(next_zoom_command(1, state, requested_speed=3), 1)
+
+    def test_release_grace_does_not_reissue_with_zero_speed(self):
+        state = ZoomCommandState()
+        self.assertEqual(next_zoom_command(1, state, requested_speed=4), 1)
+        self.assertIsNone(next_zoom_command(1, state, requested_speed=None))
+        self.assertEqual(next_zoom_command(0, state, requested_speed=None), 0)
+
     def test_udp_stop_retries_are_bounded(self):
         state = ZoomCommandState()
         next_zoom_command(1, state)

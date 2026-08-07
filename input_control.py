@@ -94,6 +94,22 @@ def resolve_zoom_direction(
     return state.direction
 
 
+def zoom_speed_for_trigger(zoom_value: float, maximum: int, *, deadzone: float = 0.10) -> int:
+    """Map trigger magnitude to a VISCA zoom speed (0..maximum).
+
+    Values inside the trigger deadzone command the slowest speed (0).  Active
+    triggers ramp linearly up to the configured maximum, while never exceeding
+    it.  This keeps a configured maximum of zero meaningful and safe.
+    """
+
+    maximum = max(0, min(int(maximum), 7))
+    magnitude = abs(float(zoom_value))
+    if magnitude <= deadzone or maximum == 0:
+        return 0
+    normalized = min(1.0, (magnitude - deadzone) / (1.0 - deadzone))
+    return min(maximum, round(normalized * maximum))
+
+
 @dataclass(frozen=True)
 class ButtonLayout:
     lb: int
@@ -102,6 +118,8 @@ class ButtonLayout:
 
 
 EVDEV_LAYOUT = ButtonLayout(lb=4, rb=5, ls=9)
+# HIDAPI exposes the D-pad as buttons 11..14 and shifts the bumpers/stick
+# click relative to the evdev layout.
 HIDAPI_LAYOUT = ButtonLayout(lb=9, rb=10, ls=7)
 
 
