@@ -53,6 +53,16 @@ Hardware you need:
 
 ## Stream Deck controls (optional)
 
+### Snapshot diagnostic
+
+Run the standalone diagnostic to capture repeated camera snapshots without a Stream Deck or Xbox controller:
+
+```bash
+python3 ~/snapshot_diagnostic.py --camera-index 1 --count 5 --interval 2
+```
+
+Use `--camera 192.168.10.44` or `--output /tmp/ptz-check` to override selection/output. The tool saves numbered images, response headers, SHA-256 metadata, and an escaped `index.html` gallery. Change the camera scene during the run; duplicate hashes produce a WARN (capture failures return nonzero). It never starts a server; optionally inspect the gallery with `python3 -m http.server --directory <output>`.
+
 On Raspberry Pi OS Bookworm, the installer prefers Debian's `python3-elgato-streamdeck` package and verifies `import StreamDeck` with the service interpreter. On older Bullseye images where that package is unavailable, it falls back to the `streamdeck` Python package via pip. It also installs `libhidapi-libusb0` and a scoped udev rule for Elgato's vendor ID (`0fd9`) granting the existing `input` group access. If installation/import fails, the bridge still starts without Stream Deck support.
 
 The first detected visual deck is used. Target a model with at least four keys (such as Stream Deck Mini, standard, or XL); three keys are reserved for camera/save controls and the remainder hold presets. Three-key Pedal devices have no preset key or useful display and are not a supported target. The default layout adapts to key count:
@@ -124,7 +134,7 @@ export PTZ_CAMS=tcp:192.168.10.44,udp:192.168.10.54
 # format: proto:ip[:port] (defaults 5678 TCP, 1259 UDP)
 ```
 
-- Adjust speed / dead-zone / zoom speed: use the D-pad or RB/LB bumpers, or edit `MAX_SPEED`, `DEADZONE`, `MAX_ZOOM_SPEED`, `ZOOM_START_DEADZONE` and `ZOOM_STOP_LOOPS` in `~/ptzpad.py`.
+- Defaults are a moderate pan/tilt max speed of 12 (range 1–24) and zoom speed 3 (range 0–7). Adjust speed / dead-zone / zoom speed with the D-pad or RB/LB bumpers, through the dashboard, or in `~/.config/ptzpad/config.json`.
 
 ## Service management
 

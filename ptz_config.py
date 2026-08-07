@@ -46,7 +46,7 @@ def validate_config(value):
     if not isinstance(brightness, int) or isinstance(brightness, bool) or not 0 <= brightness <= 100:
         raise ValueError("invalid streamdeck brightness")
     out["streamdeck"] = {"enabled": enabled, "brightness": brightness}
-    for key, default in (("max_speed", 24), ("deadzone", 0.15), ("zoom_speed", 7)):
+    for key, default in (("max_speed", 12), ("deadzone", 0.15), ("zoom_speed", 3)):
         if key in value:
             out[key] = value[key]
         else:

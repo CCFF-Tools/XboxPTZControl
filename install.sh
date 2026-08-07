@@ -132,9 +132,10 @@ install -m 644 "${SCRIPT_DIR}/zoom_control.py" "${TARGET_HOME}/zoom_control.py"
 install -m 644 "${SCRIPT_DIR}/input_control.py" "${TARGET_HOME}/input_control.py"
 install -m 644 "${SCRIPT_DIR}/oled_status.py" "${TARGET_HOME}/oled_status.py"
 install -m 644 "${SCRIPT_DIR}/streamdeck_control.py" "${TARGET_HOME}/streamdeck_control.py"
+install -m 755 "${SCRIPT_DIR}/snapshot_diagnostic.py" "${TARGET_HOME}/snapshot_diagnostic.py"
 install -m 755 "${SCRIPT_DIR}/ptz_dashboard.py" "${TARGET_HOME}/ptz_dashboard.py"
 install -m 644 "${SCRIPT_DIR}/ptz_config.py" "${TARGET_HOME}/ptz_config.py"
-chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/zoom_control.py" "${TARGET_HOME}/input_control.py" "${TARGET_HOME}/oled_status.py" "${TARGET_HOME}/streamdeck_control.py" "${TARGET_HOME}/ptz_dashboard.py" "${TARGET_HOME}/ptz_config.py"
+chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/ptzpad.py" "${TARGET_HOME}/streamdeck_control.py" "${TARGET_HOME}/snapshot_diagnostic.py" "${TARGET_HOME}/zoom_control.py" "${TARGET_HOME}/input_control.py" "${TARGET_HOME}/oled_status.py" "${TARGET_HOME}/ptz_dashboard.py" "${TARGET_HOME}/ptz_config.py"
 
 if getent group input >/dev/null 2>&1; then
     printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0fd9", MODE="0660", GROUP="input"\n' > /etc/udev/rules.d/99-ptzpad-streamdeck.rules
@@ -151,7 +152,7 @@ install -d -m 700 -o "${TARGET_USER}" -g "${TARGET_GROUP}" "${CONFIG_DIR}"
 if [[ ! -f "${CONFIG_DIR}/config.json" ]]; then
     printf '{"cameras":[' > "${CONFIG_DIR}/config.json"
     first=1; for cam in "${CAMS[@]}"; do proto="${cam%%:*}"; rest="${cam#*:}"; host="${rest%%:*}"; port="${rest#*:}"; [[ "${rest}" == "${host}" ]] && port=5678; [[ "${proto}" == udp ]] && [[ "${rest}" == "${host}" ]] && port=1259; [[ $first -eq 0 ]] && printf ',' >> "${CONFIG_DIR}/config.json"; first=0; printf '{"host":"%s","protocol":"%s","port":%s,"name":"%s","model":""}' "$host" "$proto" "$port" "$host" >> "${CONFIG_DIR}/config.json"; done
-    printf '],"max_speed":24,"deadzone":0.15,"zoom_speed":7}\n' >> "${CONFIG_DIR}/config.json"; chmod 600 "${CONFIG_DIR}/config.json"; chown "${TARGET_USER}:${TARGET_GROUP}" "${CONFIG_DIR}/config.json"
+    printf '],"max_speed":12,"deadzone":0.15,"zoom_speed":3}\n' >> "${CONFIG_DIR}/config.json"; chmod 600 "${CONFIG_DIR}/config.json"; chown "${TARGET_USER}:${TARGET_GROUP}" "${CONFIG_DIR}/config.json"
 fi
 if getent group systemd-journal >/dev/null 2>&1; then usermod -aG systemd-journal "${TARGET_USER}" || true; echo " • Added ${TARGET_USER} to systemd-journal (log out/in to apply)"; fi
 

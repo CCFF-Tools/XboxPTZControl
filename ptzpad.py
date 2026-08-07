@@ -168,9 +168,9 @@ DEBUG_INPUT_INTERVAL = 0.25     # seconds between debug samples
 
 running = True
 cur = 0
-max_speed = MAX_SPEED
+max_speed = _cfg["max_speed"]
 deadzone = DEADZONE
-zoom_speed = MAX_ZOOM_SPEED
+zoom_speed = _cfg["zoom_speed"]
 js = None
 controller_connected = False
 _started = time.time()
@@ -303,9 +303,9 @@ _streamdeck = StreamDeckController(_deck_actions)
 _streamdeck.configure(**_cfg.get("streamdeck", {}))
 _streamdeck.start()
 js = None
-max_speed = MAX_SPEED
+max_speed = _cfg["max_speed"]
 deadzone = DEADZONE
-zoom_speed = MAX_ZOOM_SPEED
+zoom_speed = _cfg["zoom_speed"]
 zoom_state = ZoomCommandState()
 zoom_trigger_state = ZoomTriggerState()
 motion_state = MotionState()

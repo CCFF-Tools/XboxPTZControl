@@ -23,6 +23,12 @@ class ConfigTests(unittest.TestCase):
         cfg = load_config({"PTZPAD_CONFIG": "/missing/config", "PTZ_CAMS": "tcp:cam.example:5678"})
         self.assertEqual(cfg["cameras"][0]["protocol"], "tcp")
 
+    def test_tuning_defaults_and_bounds(self):
+        cfg = validate_config({"cameras": [{"host": "cam"}]})
+        self.assertEqual((cfg["max_speed"], cfg["deadzone"], cfg["zoom_speed"]), (12, 0.15, 3))
+        explicit = validate_config({"cameras": [{"host": "cam"}], "max_speed": 24, "zoom_speed": 7})
+        self.assertEqual((explicit["max_speed"], explicit["zoom_speed"]), (24, 7))
+
     def test_camera_model_metadata_is_preserved(self):
         config = validate_config(
             {
